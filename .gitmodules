@@ -1,0 +1,6 @@
+[submodule "vendor/xgboost"]
+	path = vendor/xgboost
+	url = https://github.com/Nakamoto911/xgboost.git
+[submodule "vendor/hrp"]
+	path = vendor/hrp
+	url = https://github.com/Nakamoto911/hrp.git
