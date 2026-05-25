@@ -1,0 +1,67 @@
+# ── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# ── Virtualenvs ──────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.python-version
+
+# ── Pipeline artifacts (regenerable) ─────────────────────────────────────
+# Cache dir holds all parquet outputs (prices, walk-forward, regime, forecast,
+# nav, trades, risk_events) plus the generated MD reports. Bump
+# `cache_dir` in your PipelineConfig if you want a different location.
+cache/
+benchmarks/
+
+# Generated reports at the project root (CLI writes inside cache/ by default,
+# but a custom --cache-dir might land them anywhere — these patterns are a
+# safety net so a stray run doesn't accidentally commit a 50-MB equity curve).
+/report_*.md
+/eval_report_*.md
+/nav_*.parquet
+/trades_*.parquet
+/risk_events_*.parquet
+/regimes_*.parquet
+/forecasts_*.parquet
+/prices_*.parquet
+/wf_*.parquet
+
+# ── Secrets ──────────────────────────────────────────────────────────────
+.env
+.env.local
+*.pem
+*.key
+
+# ── OS ───────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ── Editor / IDE ─────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.cursor/
+*.iml
+
+# ── Profiling ────────────────────────────────────────────────────────────
+*.svg
+profile.json
+py-spy-*.txt
