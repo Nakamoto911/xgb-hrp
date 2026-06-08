@@ -16,6 +16,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from pipeline.charts import asset_regime_chart, portfolio_composition_chart
 from pipeline.config import PipelineConfig
 from pipeline.data import load_prices, load_risk_free
 from pipeline.eval import EvalContext, any_critical_failed, render_markdown, run_all
@@ -135,57 +136,80 @@ def _run_pipeline(config_json: str, force_refresh: bool):
 # -----------------------------------------------------------------------------
 cfg, force = _sidebar_config()
 
-if st.button("▶ Run pipeline", type="primary", use_container_width=True):
-    with st.spinner("Running pipeline…"):
-        t0 = time.perf_counter()
-        cfg_out, result, report, bench_navs, evals = _run_pipeline(
-            cfg.model_dump_json(), force
-        )
-        elapsed = time.perf_counter() - t0
-    st.success(f"Pipeline finished in {elapsed:.2f}s")
-
-    # Headline metrics
-    m = report.strategy_metrics
-    col_a, col_b, col_c, col_d, col_e = st.columns(5)
-    col_a.metric("CAGR",     f"{m['cagr']:+.2%}")
-    col_b.metric("Sharpe",   f"{m['sharpe']:+.2f}")
-    col_c.metric("Max DD",   f"{m['mdd']:+.2%}")
-    col_d.metric("Total tax", f"${result.total_tax:,.0f}")
-    col_e.metric("Risk events", len(result.risk_events))
-
-    # Equity curve vs benchmarks
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=result.nav.index, y=result.nav.values,
-                             mode="lines", name="Strategy", line=dict(width=3)))
-    for name, nav in bench_navs.items():
-        fig.add_trace(go.Scatter(x=nav.index, y=nav.values, mode="lines",
-                                 name=name, line=dict(dash="dot")))
-    fig.update_layout(
-        title="Equity curve vs benchmarks",
-        xaxis_title="Date", yaxis_title="NAV",
-        height=420, hovermode="x unified",
+# The pipeline runs immediately on every render. Heavy work is cached via
+# @st.cache_data keyed on the config + force flag, so subsequent renders with
+# the same config are sub-second. First cold run on a fresh window can take
+# 60-180s (vendor walk-forward) — the spinner shows progress.
+with st.spinner(
+    "Running pipeline… (first cold run on a fresh window: up to ~3 min; "
+    "warm-cache hits: <5s)"
+):
+    t0 = time.perf_counter()
+    cfg_out, result, report, bench_navs, evals = _run_pipeline(
+        cfg.model_dump_json(), force
     )
-    st.plotly_chart(fig, use_container_width=True)
+    elapsed = time.perf_counter() - t0
 
-    # Two-column: report + eval
-    left, right = st.columns([3, 2])
-    with left:
-        st.subheader("Performance report")
-        st.markdown(report.render_markdown())
-    with right:
-        st.subheader("Eval gates")
-        if any_critical_failed(evals):
-            st.error("❌ Critical eval check failed — see report below.")
-        else:
-            st.success(f"✅ {sum(1 for r in evals if r.passed)}/{len(evals)} checks passed")
-        st.markdown(render_markdown(evals))
+# Cache the forecast panel and the symbol→asset_name map so the chart
+# helpers can re-pivot without re-running the pipeline.
+forecast_panel = build_forecasts(cfg_out).panel
+symbol_to_asset_name = (
+    forecast_panel.groupby("symbol")["asset_name"].first().to_dict()
+)
 
-    # Risk events log
-    if not result.risk_events.empty:
-        st.subheader("Risk monitor events")
-        st.dataframe(result.risk_events, use_container_width=True)
-else:
-    st.info(
-        "Configure the sidebar, then click **▶ Run pipeline**. "
-        "First cold run on a long window takes ~60-90s; warm-cache hits are <2s."
-    )
+# ── Top of dashboard: vendor-ported charts ───────────────────────────────
+asset_regime_chart(forecast_panel, key_prefix="regime_top")
+portfolio_composition_chart(
+    weights=result.weights,
+    nav=result.nav,
+    symbol_to_asset_name=symbol_to_asset_name,
+    risk_free_symbol=cfg_out.risk_free_asset,
+    strategy_label=f"{cfg_out.allocator.upper()} / {cfg_out.forecast_method}",
+    key_prefix="comp_top",
+)
+
+st.divider()
+
+# Headline metrics
+m = report.strategy_metrics
+col_a, col_b, col_c, col_d, col_e, col_f, col_g = st.columns(7)
+col_a.metric("CAGR",       f"{m['cagr']:+.2%}")
+col_b.metric("Vol (ann.)", f"{m['ann_vol']:.2%}")
+col_c.metric("Sharpe",     f"{m['sharpe']:+.2f}")
+col_d.metric("Max DD",     f"{m['mdd']:+.2%}")
+col_e.metric("Total tax",  f"${result.total_tax:,.0f}")
+col_f.metric("Risk events", len(result.risk_events))
+col_g.metric("Run time",   f"{elapsed:.1f}s")
+
+# Equity curve vs benchmarks
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=result.nav.index, y=result.nav.values,
+                         mode="lines", name="Strategy", line=dict(width=3)))
+for name, nav in bench_navs.items():
+    fig.add_trace(go.Scatter(x=nav.index, y=nav.values, mode="lines",
+                             name=name, line=dict(dash="dot")))
+fig.update_layout(
+    title="Equity curve vs benchmarks",
+    xaxis_title="Date", yaxis_title="NAV",
+    height=420, hovermode="x unified",
+    template="plotly_dark",
+)
+st.plotly_chart(fig, width='stretch')
+
+# Two-column: report + eval
+left, right = st.columns([3, 2])
+with left:
+    st.subheader("Performance report")
+    st.markdown(report.render_markdown())
+with right:
+    st.subheader("Eval gates")
+    if any_critical_failed(evals):
+        st.error("❌ Critical eval check failed — see report below.")
+    else:
+        st.success(f"✅ {sum(1 for r in evals if r.passed)}/{len(evals)} checks passed")
+    st.markdown(render_markdown(evals))
+
+# Risk events log
+if not result.risk_events.empty:
+    st.subheader("Risk monitor events")
+    st.dataframe(result.risk_events, width='stretch')
