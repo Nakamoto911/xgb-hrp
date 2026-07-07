@@ -6,8 +6,9 @@ Each per-category module (data_eval, allocator_eval, …) exposes a
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -22,10 +23,10 @@ class EvalContext:
     (e.g. a data-layer audit doesn't need a BacktestResult).
     """
     config: PipelineConfig
-    prices: Optional[pd.DataFrame] = None
-    regime_panel: Optional[pd.DataFrame] = None
-    forecast_panel: Optional[pd.DataFrame] = None
-    backtest_result: Optional[Any] = None      # pipeline.executor.BacktestResult
+    prices: pd.DataFrame | None = None
+    regime_panel: pd.DataFrame | None = None
+    forecast_panel: pd.DataFrame | None = None
+    backtest_result: Any | None = None      # pipeline.executor.BacktestResult
     benchmark_navs: dict[str, pd.Series] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
 

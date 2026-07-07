@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 
 from pipeline.eval._base import EvalCheck, EvalContext, EvalResult, failed, passed
-from pipeline.performance import compute_metrics
 
 
 def _series_sharpe(nav: pd.Series) -> float:

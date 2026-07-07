@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 import pandas as pd
 
@@ -71,7 +70,7 @@ def select(
     forecast_panel: pd.DataFrame,
     config: PipelineConfig,
     *,
-    on_dates: Optional[pd.DatetimeIndex] = None,
+    on_dates: pd.DatetimeIndex | None = None,
 ) -> SelectorOutput:
     """Run the configured selection rule on a forecast panel.
 

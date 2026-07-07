@@ -11,10 +11,9 @@ config triggers a single fit per asset.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
@@ -27,7 +26,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class RegimeOutput:
     panel: pd.DataFrame  # [symbol, asset_name, date, regime_label]
-    path: Optional[Path] = None
+    path: Path | None = None
 
 
 def _project_to_regime_panel(signals: dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -58,6 +57,7 @@ def build_regimes(
     *,
     save: bool = True,
     force_refresh: bool = False,
+    force_project: bool = False,
 ) -> RegimeOutput:
     """Build the per-asset regime panel.
 
@@ -65,6 +65,12 @@ def build_regimes(
     :func:`pipeline._walk_forward.compute_signals`), so calling
     :func:`build_regimes` and :func:`pipeline.forecast.build_forecasts`
     consecutively triggers a single JM+XGB fit per asset.
+
+    ``force_project`` bypasses only the long-panel parquet, re-projecting
+    from the per-asset walk-forward caches without re-running them. Use it
+    when another build (e.g. :func:`build_forecasts`) already refreshed the
+    walk-forward with ``force_refresh=True`` — passing ``force_refresh``
+    here too would needlessly repeat the whole fit.
     """
     if config.pool not in POOL_TO_XGB_UNIVERSE:
         raise NotImplementedError(
@@ -78,14 +84,14 @@ def build_regimes(
         / f"regimes_{config.pool}_{config.start_date}_{end_str}_{config.feature_version}.parquet"
     )
 
-    if save and out_path.exists() and not force_refresh:
+    if save and out_path.exists() and not (force_refresh or force_project):
         logger.info("Loading cached regime panel from %s", out_path)
         return RegimeOutput(panel=pd.read_parquet(out_path), path=out_path)
 
     signals = compute_signals(config, force_refresh=force_refresh)
     panel = _project_to_regime_panel(signals)
 
-    out_path_resolved: Optional[Path] = None
+    out_path_resolved: Path | None = None
     if save:
         config.cache_dir.mkdir(parents=True, exist_ok=True)
         panel.to_parquet(out_path)

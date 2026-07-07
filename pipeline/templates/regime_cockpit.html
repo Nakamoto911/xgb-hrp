@@ -1,0 +1,736 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Regime Detection Cockpit · guided</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0E14; --panel:#131822; --panel2:#0F141D; --line:rgba(255,255,255,.07);
+    --ink:#E6EAF2; --muted:#7E8AA0; --faint:#4A556B;
+    --bull:#2ECC8F; --bear:#FF5470; --amber:#FFC857; --signal:#5BD1E6; --violet:#B48EAD;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1500px;margin:0 auto;padding:32px 40px 56px}
+  header{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;padding-bottom:20px;border-bottom:1px solid var(--line)}
+  .eyebrow{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--signal);margin-bottom:10px}
+  h1{font-family:'Space Grotesk';font-weight:600;font-size:29px;margin:0;letter-spacing:-.01em}
+  h1 b{color:var(--muted);font-weight:400}
+  .sub{color:var(--muted);font-size:13px;margin-top:8px;max-width:680px;line-height:1.5}
+  .controls{display:flex;gap:16px;flex-wrap:wrap;justify-content:flex-end}
+  .ctl{display:flex;flex-direction:column;gap:6px}
+  .ctl label{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);text-align:right}
+  select{appearance:none;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:9px 34px 9px 13px;
+    font-family:'JetBrains Mono',monospace;font-size:13px;cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg width='10' height='6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%237E8AA0' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 13px center}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .seg button{background:var(--panel);color:var(--muted);border:0;padding:9px 11px;font-family:'JetBrains Mono',monospace;font-size:12px;cursor:pointer;border-right:1px solid var(--line)}
+  .seg button:last-child{border-right:0}
+  .seg button[aria-pressed=true]{background:var(--signal);color:#06121a;font-weight:700}
+  select:focus-visible,button:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:13px;margin:22px 0 20px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:14px 15px;position:relative;overflow:hidden}
+  .kpi .lab{font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  .kpi .val{font-family:'Space Grotesk';font-weight:600;font-size:26px;margin-top:6px;line-height:1}
+  .kpi .val small{font-size:12px;color:var(--muted);font-weight:400}
+  .kpi .foot{font-size:10px;color:var(--faint);margin-top:6px;line-height:1.3}
+  .kpi .tick{position:absolute;left:0;top:0;bottom:0;width:3px}
+  .kpi.bear .tick{background:var(--bear)} .kpi.bull .tick{background:var(--bull)}
+  .kpi.cost .tick{background:var(--amber)} .kpi.feat .tick{background:var(--violet)}
+  .kpi.bear .val{color:var(--bear)} .kpi.bull .val{color:var(--bull)} .kpi.cost .val{color:var(--amber)}
+  .stage{display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:stretch}
+  .scope{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 20px 10px}
+  .scope-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+  .scope-head .t{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .legend{display:flex;gap:12px;font-size:10.5px;color:var(--muted);align-items:center;flex-wrap:wrap;justify-content:flex-end}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:3px}
+  .legend .ln{width:13px;height:0;border-top:2px solid;border-radius:2px}
+  .ledger{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 6px 12px 18px;display:flex;flex-direction:column}
+  .ledger h3{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:2px 0 12px}
+  .lwrap{overflow-y:auto;padding-right:12px;display:flex;flex-direction:column;gap:9px;max-height:600px}
+  .chartwrap{position:relative}
+  .panelctl{position:absolute;right:7px;transform:translateY(-100%);display:flex;align-items:center;gap:6px;z-index:6;
+    background:rgba(11,14,20,.72);border:1px solid var(--line);border-radius:7px;padding:2px 6px;backdrop-filter:blur(3px)}
+  .panelctl .pl{font-family:'JetBrains Mono',monospace;font-size:7.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);white-space:nowrap}
+  .seg.mini button{padding:2px 6px;font-size:10px}
+  .crosshair{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5}
+  .chread{position:absolute;z-index:7;display:none;pointer-events:none;top:2px;left:6px;
+    background:rgba(15,20,29,.94);border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:6px 9px;min-width:120px;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+  .chread .cd{font-family:'Space Grotesk';font-weight:600;font-size:11px;color:var(--ink);margin-bottom:4px}
+  .chread .cr{display:flex;justify-content:space-between;gap:14px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);line-height:1.6}
+  .chread .cr b{font-weight:600}
+  .zoombar{display:flex;align-items:center;gap:10px;margin:10px 0 6px}
+  .zoombar .zl{font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+  .zoombar .zhint{font-family:'Inter';font-size:10px;color:var(--faint)}
+  .overview{position:relative;cursor:crosshair;-webkit-user-select:none;user-select:none}
+  .overview svg{width:100%;display:block}
+  .ledctls{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+  .ledctls .rfilter{margin-bottom:0}
+  .ledctls .sl{font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-right:6px}
+  .rfilter{margin-bottom:12px;align-self:flex-start}
+  .regfp{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 13px 10px;margin-bottom:12px}
+  .regfp .cap{font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  .regfp .cap .lg{display:flex;gap:9px}
+  .regfp .cap .lg span{display:inline-flex;align-items:center;gap:4px}
+  .regfp .cap .lg i{width:8px;height:8px;border-radius:50%}
+  .frow{margin-bottom:15px}.frow:last-child{margin-bottom:3px}
+  .frow .ft{display:flex;justify-content:space-between;font-size:11px;margin-bottom:9px}
+  .frow .ft .sep{font-family:'JetBrains Mono',monospace;font-size:9.5px}
+  .track{position:relative;height:20px}
+  .track .axis{position:absolute;top:9px;left:0;right:0;height:1px;background:var(--line)}
+  .track .dot{position:absolute;top:3px;width:11px;height:11px;border-radius:50%;transform:translateX(-50%);border:2px solid var(--panel2)}
+  .track .link{position:absolute;top:8.5px;height:3px;border-radius:2px;background:var(--faint);opacity:.6}
+  .track .vlab{position:absolute;top:-3px;font-family:'JetBrains Mono',monospace;font-size:9px;transform:translateX(-50%)}
+  .track .vlab.bot{top:auto;bottom:-4px}
+  .rc .dates{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--muted);margin-top:5px}
+  .lwrap::-webkit-scrollbar{width:7px}.lwrap::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+  .rc{border:1px solid var(--line);border-radius:10px;background:var(--panel2);padding:11px 12px}
+  .rc.miss{border-color:rgba(255,84,112,.5);border-style:dashed}
+  .rc .top{display:flex;justify-content:space-between;align-items:baseline}
+  .rc .nm{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px}
+  .rc .nm .d{width:8px;height:8px;border-radius:2px;background:var(--bear)}
+  .rc .len{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--faint)}
+  .rc .lags{display:flex;gap:14px;margin-top:9px}
+  .rc .lg{flex:1}
+  .rc .lg .h{font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .rc .lg .b{font-family:'Space Grotesk';font-weight:600;font-size:15px;margin-top:2px}
+  .rc .lg .b small{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:400;color:var(--amber);margin-left:4px}
+  .rc.exit .lg.e .b{color:var(--bear)} .rc .lg.r .b{color:var(--bull)}
+  .rc .char{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px 8px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
+  .rc .m{display:flex;flex-direction:column}
+  .rc .m .k{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
+  .rc .m .v{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink);margin-top:1px}
+  .footnote{margin-top:24px;color:var(--faint);font-size:11.5px;line-height:1.65;border-top:1px solid var(--line);padding-top:16px;max-width:1140px}
+  .footnote b{color:var(--muted)}
+  text{font-family:'JetBrains Mono',monospace}
+  /* tooltip system */
+  #chart svg *{pointer-events:none}
+  #chart svg .hit{pointer-events:all}
+  [data-tt]{cursor:help}
+  .tooltip{position:fixed;z-index:120;display:none;pointer-events:none;max-width:290px;
+    background:#0F141D;border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:10px 12px;
+    box-shadow:0 10px 30px rgba(0,0,0,.55)}
+  .tooltip .tt-t{font-family:'Space Grotesk';font-weight:600;font-size:12.5px;color:var(--ink);margin-bottom:5px;letter-spacing:-.01em}
+  .tooltip .tt-d{font-size:11px;line-height:1.5;color:var(--muted)}
+  .tooltip .tt-d b{color:var(--ink)}
+  /* production badge + audit overlay (production-truth audit view) */
+  .prodbadge{position:absolute;left:20px;top:6px;z-index:8;display:flex;gap:9px;align-items:center;
+    background:rgba(46,204,143,.10);border:1px solid rgba(46,204,143,.45);border-radius:7px;padding:4px 9px;max-width:74%}
+  .prodbadge .dotp{width:7px;height:7px;border-radius:2px;background:var(--bull);flex:none}
+  .prodbadge .pb-t{font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--bull);font-weight:700;flex:none}
+  .prodbadge .pb-d{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .whatif{margin:8px 0 4px;border:1px dashed rgba(180,142,173,.55);border-radius:10px;padding:10px 12px;background:rgba(180,142,173,.06)}
+  .whatif[hidden]{display:none}
+  .whatif .wh-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;gap:10px}
+  .whatif .wh-t{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:var(--violet);font-weight:700}
+  .whatif .wrow{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end}
+  .whatif .wk{display:flex;flex-direction:column;gap:4px}
+  .whatif .wk label{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+  .whatif .wdiff{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--violet);margin-top:9px;line-height:1.55}
+  .whatif button.reset{background:var(--panel);color:var(--violet);border:1px solid rgba(180,142,173,.5);border-radius:8px;
+    padding:6px 11px;font-family:'JetBrains Mono',monospace;font-size:10px;cursor:pointer;flex:none}
+  .ledsort{display:flex;align-items:center;gap:7px;margin-bottom:11px;flex-wrap:wrap}
+  .ledsort .sl{font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+  .lwrap .rc{cursor:pointer}
+  #chart .regband.dimband{opacity:.16 !important;transition:opacity .1s}
+</style>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">Asset Regime Chart · Detection Cockpit</div>
+      <h1>Timeliness, cost &amp; character <b>— one timeline</b></h1>
+      <div class="sub">The lag is the gap between a market event (crash top ▲ / recovery trough ▼) and the regime the model actually detects. In that gap, watch return roll over and downside deviation spike — the damage the delay let through, and the features that define the regime.</div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><label>Asset</label><select id="asset"></select></div>
+      <div class="ctl"><label>Reference</label><div class="seg" id="ref"><button data-v="none" aria-pressed="true">None</button><button data-v="jm">JM label</button></div></div>
+      <div class="ctl"><label>Timeline</label><div class="seg" id="ovtoggle"><button data-v="off" aria-pressed="true">Production</button><button data-v="on">+ What-if</button></div></div>
+    </div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="stage">
+    <div class="scope">
+      <div class="scope-head">
+        <span class="t">Drawdown · signal · return · downside</span>
+        <span class="legend">
+          <span><i style="background:var(--bear)"></i>bear</span>
+          <span><i style="background:var(--bull)"></i>bull</span>
+          <span><span class="ln" style="border-color:var(--signal)"></span>P(bear)/return</span>
+          <span><span class="ln" style="border-color:var(--amber)"></span>downside</span>
+        </span>
+      </div>
+      <div class="chartwrap">
+        <div id="chart"></div>
+        <div class="prodbadge" id="prodbadge"></div>
+        <svg class="crosshair" id="cross" viewBox="0 0 880 578" preserveAspectRatio="xMidYMid meet">
+          <line id="chx" x1="0" y1="0" x2="0" y2="0" stroke="var(--ink)" stroke-width="0.7" opacity="0" stroke-dasharray="3 3"/>
+          <circle id="chd0" r="3.3" fill="none" opacity="0" stroke="var(--bg)" stroke-width="1"/>
+          <circle id="chd1" r="3.3" fill="none" opacity="0" stroke="var(--bg)" stroke-width="1"/>
+          <circle id="chd2" r="3.3" fill="none" opacity="0" stroke="var(--bg)" stroke-width="1"/>
+          <circle id="chd3" r="3.3" fill="none" opacity="0" stroke="var(--bg)" stroke-width="1"/>
+        </svg>
+        <div class="chread" id="chread"></div>
+        <div class="panelctl" style="top:5.7%"><span class="pl">Crash ≥</span>
+          <div class="seg mini" id="dmin"><button data-v="0.10">10%</button><button data-v="0.15" aria-pressed="true">15%</button><button data-v="0.20">20%</button></div></div>
+        <div class="panelctl" style="top:61.4%"><span class="pl">Return win</span>
+          <div class="seg mini" id="retwin"><button data-v="5">5</button><button data-v="10">10</button><button data-v="21" aria-pressed="true">21</button></div></div>
+        <div class="panelctl" style="top:81.8%"><span class="pl">Downside win</span>
+          <div class="seg mini" id="dsdwin"><button data-v="5">5</button><button data-v="10">10</button><button data-v="21" aria-pressed="true">21</button></div></div>
+      </div>
+      <div class="zoombar">
+        <span class="zl">Range</span>
+        <div class="seg mini" id="preset"><button data-v="1">1Y</button><button data-v="3">3Y</button><button data-v="5">5Y</button><button data-v="0" aria-pressed="true">All</button></div>
+        <span class="zhint">scroll to zoom · drag chart to pan · drag the strip ↓ · click a ledger card to jump</span>
+      </div>
+      <div class="overview" id="overview"></div>
+      <div class="whatif" id="whatif" hidden>
+        <div class="wh-h"><span class="wh-t">What-if overlay · hypothetical, compared against production</span>
+          <button class="reset" id="wreset">Reset to production</button></div>
+        <div class="wrow">
+          <div class="wk"><label>signal</label><div class="seg mini" id="wsig"><button data-v="smooth" aria-pressed="true">smoothed</button><button data-v="raw">raw</button></div></div>
+          <div class="wk"><label>θ</label><div class="seg mini" id="wtheta"><button data-v="0.30">.30</button><button data-v="0.40" aria-pressed="true">.40</button><button data-v="0.50">.50</button><button data-v="0.60">.60</button><button data-v="0.70">.70</button></div></div>
+          <div class="wk"><label>θ clear</label><div class="seg mini" id="wclear"><button data-v="0" aria-pressed="true">none</button><button data-v="0.30">.30</button><button data-v="0.40">.40</button></div></div>
+          <div class="wk"><label>dwell</label><div class="seg mini" id="wdwell"><button data-v="1" aria-pressed="true">1</button><button data-v="3">3</button><button data-v="5">5</button><button data-v="10">10</button></div></div>
+          <div class="wk"><label>min len</label><div class="seg mini" id="wminlen"><button data-v="0" aria-pressed="true">0</button><button data-v="5">5</button><button data-v="10">10</button><button data-v="21">21</button></div></div>
+        </div>
+        <div class="wdiff" id="wdiff"></div>
+      </div>
+    </div>
+    <div class="ledger">
+      <h3>Regime ledger</h3>
+      <div class="ledctls">
+        <div class="seg rfilter" id="rfilter"><button data-v="both" aria-pressed="true">Both</button><button data-v="bull">Bull</button><button data-v="bear">Bear</button></div>
+        <div style="display:flex;align-items:center"><span class="sl">stat</span><div class="seg mini" id="stat"><button data-v="median" aria-pressed="true">Med</button><button data-v="mean">Mean</button></div></div>
+      </div>
+      <div class="ledsort">
+        <span class="sl">sort</span><div class="seg mini" id="ledsort"><button data-v="date" aria-pressed="true">Date</button><button data-v="dd">MaxDD</button><button data-v="lag">Exit lag</button></div>
+        <div class="seg mini" id="ledmat"><button data-v="all" aria-pressed="true">All</button><button data-v="material">Material</button></div>
+        <div class="seg mini" id="ledcrash"><button data-v="off" aria-pressed="true">All bears</button><button data-v="on">Crashes</button></div>
+      </div>
+      <div class="regfp" id="regfp"></div>
+      <div class="lwrap" id="lwrap"></div>
+    </div>
+  </div>
+
+  <div class="footnote" id="foot"></div>
+</div>
+<div class="tooltip" id="tip"></div>
+
+<script>
+const PAYLOAD = /*__ASSETS__*/;
+const PRODUCTION = /*__PRODUCTION__*/;
+const KEYS = Object.keys(PAYLOAD);
+let NDAYS=0, CURA=null;                // set per-render to the active asset (length + date axis)
+const EXIT=0.025;
+const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+// Real dates from PAYLOAD[ticker].dates (ISO), via the asset active in the current render (CURA),
+// so downstream chart/zoom/crosshair code that calls dlabel(i)/fmtDate(...) is unchanged.
+function dlabel(i){const s=CURA.dates[i];if(s===undefined)return new Date(NaN);const p=s.split('-');return new Date(+p[0],+p[1]-1,+p[2]);}
+function fmtDate(d){return `${MONTHS[d.getMonth()]} ${String(d.getDate()).padStart(2,'0')} ’${String(d.getFullYear()).slice(2)}`;}
+function median(a){if(!a.length)return NaN;const b=[...a].sort((x,y)=>x-y);const m=b.length>>1;return b.length%2?b[m]:(b[m-1]+b[m])/2;}
+function mean(a){return a.length?a.reduce((s,x)=>s+x,0)/a.length:NaN;}
+function stdOf(a){if(a.length<2)return 0;const m=mean(a);return Math.sqrt(mean(a.map(x=>(x-m)**2)))||0;}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function tt(title,body){const e=s=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');return ` data-tt="${e(title)}" data-td="${e(body)}"`;}
+const WINDOWS=[5,10,21];
+
+// realised-price crash episodes — the TRUTH (Dmin-independent detector at fixed 0.05)
+function episodes(price,Dmin){const eps=[];let runPeak=price[0],rpi=0,inD=false,tr,tri,epk;
+ for(let i=0;i<price.length;i++){if(price[i]>=runPeak){if(inD){const md=tr/price[epk]-1;
+   if(md<=-Dmin)eps.push({peakIdx:epk,troughIdx:tri,maxdd:md,recoverIdx:i});inD=false;}runPeak=price[i];rpi=i;}
+  else{const d=price[i]/runPeak-1;if(!inD){inD=true;epk=rpi;tr=price[i];tri=i;}if(price[i]<tr){tr=price[i];tri=i;}
+   const cm=tr/price[epk]-1;if(cm<=-Dmin&&d>=-EXIT){eps.push({peakIdx:epk,troughIdx:tri,maxdd:cm,recoverIdx:i});inD=false;runPeak=price[i];rpi=i;}}}
+  if(inD){const cm=tr/price[epk]-1;if(cm<=-Dmin)eps.push({peakIdx:epk,troughIdx:tri,maxdd:cm,recoverIdx:price.length-1});}return eps;}
+
+// LTTB downsample of the visible window [i0,i1] on value array `arr` → subset of TRUE indices.
+// Keeps ~`threshold` points so each pixel column carries ~1 point; markers/events never use this.
+function lttb(i0,i1,arr,threshold){
+ const n=i1-i0+1;
+ if(threshold>=n||threshold<3){const out=[];for(let i=i0;i<=i1;i++)out.push(i);return out;}
+ const out=[i0];const every=(n-2)/(threshold-2);let a=i0;
+ for(let k=0;k<threshold-2;k++){
+   let rs=Math.floor((k+1)*every)+1+i0, re=Math.floor((k+2)*every)+1+i0; if(re>i1+1)re=i1+1;
+   let avgX=0,avgY=0;const rl=(re-rs)||1;for(let j=rs;j<re;j++){avgX+=j;avgY+=arr[j];}avgX/=rl;avgY/=rl;
+   let ps=Math.floor(k*every)+1+i0, pe=Math.floor((k+1)*every)+1+i0; if(pe>i1+1)pe=i1+1;
+   const ax=a,ay=arr[a];let maxA=-1,nx=ps;
+   for(let j=ps;j<pe;j++){const ar=Math.abs((ax-avgX)*(arr[j]-ay)-(ax-j)*(avgY-ay));if(ar>maxA){maxA=ar;nx=j;}}
+   out.push(nx);a=nx;}
+ out.push(i1);return out;}
+
+function getAsset(key){
+ const p=PAYLOAD[key];
+ const price=Float64Array.from(p.price);
+ const n=price.length;
+ const Psm=Float64Array.from(p.p_bear_smooth);   // production signal (EWMA-smoothed p_bear)
+ const Praw=Float64Array.from(p.p_bear_raw);      // raw p_bear (audit overlay only)
+ const dret=new Float64Array(n);for(let i=1;i<n;i++)dret[i]=Math.log(price[i]/price[i-1]);
+ const canon=episodes(price,0.05);
+ return {n,sym:p.sym,name:p.name,dates:p.dates,price,Psm,Praw,dret,canon,
+         ret:p.ret,dsd:p.dsd,regimes:p.regimes,jm:p.jm};
+}
+
+// expand [{start,end,state}] → {a,b,st} segments + per-seg character stats (uses A.retW/dsdW/dret/price)
+function buildRegime(A,rawSegs,agg){
+ const n=A.n;const segs=rawSegs.map(s=>({a:s.start,b:s.end,st:s.state}));
+ const lab=new Int8Array(n);for(const s of segs)for(let i=s.a;i<s.b;i++)lab[i]=s.st;
+ for(const sg of segs){const R=[],D=[],V=[];let pk=A.price[sg.a],md=0;
+   for(let i=sg.a;i<sg.b;i++){R.push(A.retW[i]);D.push(A.dsdW[i]);V.push(A.dret[i]);pk=Math.max(pk,A.price[i]);md=Math.min(md,A.price[i]/pk-1);}
+   sg.ret=agg(R);sg.dsd=agg(D);sg.vol=stdOf(V);sg.maxdd=md;}
+ return {lab,segs};
+}
+function labToSegs(lab){const n=lab.length;const segs=[];let a=0;for(let i=1;i<n;i++)if(lab[i]!==lab[i-1]){segs.push({start:a,end:i,state:lab[a]});a=i;}segs.push({start:a,end:n,state:lab[a]});return segs;}
+
+// AUDIT OVERLAY (what-if only): client-side hypothetical regime from a chosen signal + θ (+θ_clear hysteresis,
+// dwell confirmation, min regime length). NEVER drives the default view.
+function overlayLabel(A,opt){
+ const n=A.n;const P=opt.sig==='raw'?A.Praw:A.Psm;const th=opt.theta,thc=opt.clear>0?opt.clear:opt.theta,dw=Math.max(1,opt.dwell);
+ const lab=new Int8Array(n);let state=0,cand=-1,cnt=0;
+ for(let i=1;i<n;i++){const b=state===0?(P[i]>th?1:0):(P[i]<thc?0:1);
+   if(b===state){cand=-1;cnt=0;}else{if(b===cand)cnt++;else{cand=b;cnt=1;}if(cnt>=dw){state=b;cand=-1;cnt=0;}}
+   lab[i]=state;}
+ if(opt.minlen>1){let a=0;for(let i=1;i<=n;i++){if(i===n||lab[i]!==lab[a]){if(i-a<opt.minlen&&a>0){const fill=lab[a-1];for(let j=a;j<i;j++)lab[j]=fill;}a=i;}}}
+ return lab;
+}
+
+// audit a regime label (bear=1) against realised price crashes → exit/re-entry lag + cost
+function analyse(A,lab,Dmin){
+ const eps=A.canon.filter(e=>e.maxdd<=-Dmin);const cycles=[];
+ eps.forEach(e=>{
+   let cd=-1;for(let i=e.peakIdx;i<=e.recoverIdx;i++){if(lab[i]===1){cd=i;break;}}
+   const cMiss=cd<0;let rd=null,rMiss=true;
+   if(!cMiss){const from=Math.max(cd,e.troughIdx),to=Math.min(e.recoverIdx+30,A.n-1);
+     for(let i=from;i<=to;i++){if(lab[i]===0){rd=i;break;}}rMiss=rd==null;}
+   cycles.push({peakIdx:e.peakIdx,troughIdx:e.troughIdx,recoverIdx:e.recoverIdx,maxdd:e.maxdd,
+     cd,cMiss,clag:cMiss?null:cd-e.peakIdx,ccost:cMiss?e.maxdd:(A.price[cd]/A.price[e.peakIdx]-1),
+     rd,rMiss,rlag:(cMiss||rMiss)?null:rd-e.troughIdx,rcost:(cMiss||rMiss)?null:(A.price[rd]/A.price[e.troughIdx]-1)});
+ });
+ return cycles;
+}
+
+// ---- shared geometry (used by chart, zoom + crosshair) ----
+const LAYOUT=(()=>{
+ const W=880,padL=48,padR=14,padT=8,hb=28,gh=52,g=8,padB=24;
+ const ph1=116,ph2=90,ph3=82,ph4=78;
+ const dwBand=padT, dwTop=dwBand+hb;
+ const gutTop=dwTop+ph1, gutBot=gutTop+gh;
+ const sgBand=gutBot, sgTop=sgBand+hb;
+ const rtBand=sgTop+ph2+g, rtTop=rtBand+hb;
+ const dsBand=rtTop+ph3+g, dsTop=dsBand+hb;
+ const H=dsTop+ph4+padB, iw=W-padL-padR;
+ return {W,padL,padR,padT,hb,gh,g,padB,ph1,ph2,ph3,ph4,dwBand,dwTop,gutTop,gutBot,sgBand,sgTop,rtBand,rtTop,dsBand,dsTop,H,iw};
+})();
+let view={i0:0,i1:0};                // visible index window (focus+context zoom)
+let CUR=null;                        // live geometry for crosshair readout
+let SCENE=null;                      // current {A,det,cycles,theta,overlays} for cheap re-draws on zoom/pan
+const THR=1500;                      // LTTB target points per polyline (recomputed per draw)
+
+function chart(A,det,cycles,theta,overlays){
+ const {W,padL,padR,hb,ph1,ph2,ph3,ph4,dwBand,dwTop,gutTop,sgBand,sgTop,rtBand,rtTop,dsBand,dsTop,H,iw}=LAYOUT;
+ const i0=view.i0, i1=view.i1, span=(i1-i0)||1;
+ const x=i=>padL+(i-i0)/span*iw;
+ const inV=i=>i>=i0&&i<=i1;
+ const cx=v=>Math.max(padL,Math.min(W-padR,v));
+ const price=A.price;const peakLine=new Float64Array(NDAYS);let rp=price[0];
+ for(let i=0;i<NDAYS;i++){rp=Math.max(rp,price[i]);peakLine[i]=rp;}
+ const dd=new Float64Array(NDAYS);for(let i=0;i<NDAYS;i++)dd[i]=price[i]/peakLine[i]-1;
+ let ddMin=0;for(let i=i0;i<=i1;i++)if(dd[i]<ddMin)ddMin=dd[i];
+ const floor=Math.min(-0.05,ddMin*1.10);const ddy=v=>dwTop+(-v)/(-floor)*ph1;
+ const sy=v=>sgTop+(1-v)*ph2;
+ const ra=A.retW;let rmin=Infinity,rmax=-Infinity;for(let i=i0;i<=i1;i++){if(ra[i]<rmin)rmin=ra[i];if(ra[i]>rmax)rmax=ra[i];}
+ const rpd=(rmax-rmin)*0.10||1;rmin-=rpd;rmax+=rpd;
+ const ry=v=>rtTop+ph3-(v-rmin)/(rmax-rmin)*ph3;
+ const da=A.dsdW;let dmax=-Infinity;for(let i=i0;i<=i1;i++)if(da[i]>dmax)dmax=da[i];dmax+=(dmax*0.10||1);
+ const dyf=v=>dsTop+ph4-(v/dmax)*ph4;
+ const LBL=(bandTop,txt)=>`<text x="${padL}" y="${bandTop+hb-7}" font-size="8.5" letter-spacing="1.2" fill="var(--faint)">${txt}</text>`;
+ const dotY=i=>theta!=null?sy(theta):sy(A.P[i]);
+ // LTTB path over the visible window (true indices), recomputed per draw
+ const path=(arr,fn)=>{const ix=lttb(i0,i1,arr,THR);let d='';for(const i of ix)d+=(d?' L ':'M ')+x(i)+' '+fn(arr[i]);return d;};
+ let s=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet">`;
+ s+=`<defs><clipPath id="pc"><rect x="${padL}" y="${dwTop}" width="${iw}" height="${dsTop+ph4-dwTop}"/></clipPath>`;
+ s+=`<pattern id="ovhatch" width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><line x1="0" y1="0" x2="0" y2="5" stroke="var(--violet)" stroke-width="1.1"/></pattern></defs>`;
+
+ // PRODUCTION regime shading — the committed timeline; one fixed red per bear, one fixed green per bull (fills)
+ for(const sg of det.segs){const a=Math.max(sg.a,i0),b=Math.min(sg.b-1,i1);if(b<a)continue;
+   const x0=x(a),w=Math.max(1,x(b)-x0);const bear=sg.st===1;const col=bear?'255,84,112':'46,204,143';
+   const opMain=bear?0.17:0.09, opFeat=bear?0.13:0.07;const cls=`regband" data-seg="${sg.a}`;
+   s+=`<rect class="${cls}" x="${x0}" y="${dwTop}" width="${w}" height="${ph1}" fill="rgba(${col},${opMain})"/>`;
+   s+=`<rect class="${cls}" x="${x0}" y="${sgTop}" width="${w}" height="${ph2}" fill="rgba(${col},${opFeat})"/>`;
+   s+=`<rect class="${cls}" x="${x0}" y="${rtTop}" width="${w}" height="${ph3}" fill="rgba(${col},${opFeat})"/>`;
+   s+=`<rect class="${cls}" x="${x0}" y="${dsTop}" width="${w}" height="${ph4}" fill="rgba(${col},${opFeat})"/>`;}
+
+ // reference / audit OVERLAYS — outlined bands drawn ALONGSIDE production, never replacing the fills
+ for(const ov of (overlays||[])){for(const sg of ov.segs){if(sg.st!==1)continue;
+   const a=Math.max(sg.a,i0),b=Math.min(sg.b-1,i1);if(b<a)continue;const x0=x(a),w=Math.max(1,x(b)-x0);
+   s+=`<rect x="${x0}" y="${dwTop}" width="${w}" height="${dsTop+ph4-dwTop}" fill="${ov.fill||'none'}" stroke="${ov.color}" stroke-width="1.1" stroke-dasharray="${ov.dash}" opacity=".9"/>`;}}
+
+ // faint year gridlines (each January boundary in view)
+ let py=dlabel(i0).getFullYear();
+ for(let i=i0+1;i<=i1;i++){const y=dlabel(i).getFullYear();if(y!==py){s+=`<line x1="${x(i)}" x2="${x(i)}" y1="${dwTop}" y2="${dsTop+ph4}" stroke="var(--line)" opacity=".6"/>`;py=y;}}
+
+ // truth-event vertical guides (only events inside the window)
+ for(const c of cycles){
+   if(inV(c.peakIdx))s+=`<line x1="${x(c.peakIdx)}" x2="${x(c.peakIdx)}" y1="${dwTop}" y2="${dsTop+ph4}" stroke="var(--bear)" stroke-width="1" stroke-dasharray="2 3" opacity=".55"/>`;
+   if(inV(c.troughIdx))s+=`<line x1="${x(c.troughIdx)}" x2="${x(c.troughIdx)}" y1="${dwTop}" y2="${dsTop+ph4}" stroke="var(--bull)" stroke-width="1" stroke-dasharray="2 3" opacity=".5"/>`;}
+
+ // ---- Z1 underwater ----
+ s+=LBL(dwBand,`DRAWDOWN FROM PEAK · ${A.sym}`);
+ const step=(-floor)>0.45?0.15:0.10;
+ for(let gg=0;gg>=floor-1e-9;gg-=step){const yy=ddy(gg);s+=`<line x1="${padL}" x2="${W-padR}" y1="${yy}" y2="${yy}" stroke="${gg===0?'var(--faint)':'var(--line)'}"/>`;
+   s+=`<text x="${padL-6}" y="${yy+3}" font-size="8" text-anchor="end" fill="var(--faint)">${(gg*100).toFixed(0)}%</text>`;}
+ s+=`<path d="${path(dd,v=>ddy(v))}" fill="none" stroke="var(--bear)" stroke-width="1.3" opacity=".9" clip-path="url(#pc)"/>`;
+
+ // ---- Z2 signal (PRODUCTION smoothed p_bear + read-only production θ) ----
+ for(const gv of [0,0.5,1]){s+=`<line x1="${padL}" x2="${W-padR}" y1="${sy(gv)}" y2="${sy(gv)}" stroke="var(--line)"/>`;
+   s+=`<text x="${padL-6}" y="${sy(gv)+3}" font-size="8" text-anchor="end" fill="var(--faint)">${gv.toFixed(1)}</text>`;}
+ s+=LBL(sgBand,'P(BEAR) · SMOOTHED · PRODUCTION');
+ if(theta!=null){s+=`<line x1="${padL}" x2="${W-padR}" y1="${sy(theta)}" y2="${sy(theta)}" stroke="var(--amber)" stroke-width="1.2" stroke-dasharray="5 4"/>`;
+   s+=`<text x="${W-padR}" y="${sy(theta)-3}" font-size="8" text-anchor="end" fill="var(--amber)">θ=${theta.toFixed(2)} · prod</text>`;}
+ s+=`<path d="${path(A.P,v=>sy(v))}" fill="none" stroke="var(--signal)" stroke-width="1.4" clip-path="url(#pc)"/>`;
+
+ // ---- Z3 return ----
+ s+=LBL(rtBand,`AVG RETURN ${A.retWin}d`);
+ s+=`<line x1="${padL}" x2="${W-padR}" y1="${ry(0)}" y2="${ry(0)}" stroke="var(--faint)"/>`;
+ for(const tv of [rmax,rmin]){const yy=ry(tv);s+=`<text x="${padL-6}" y="${yy+3}" font-size="8" text-anchor="end" fill="var(--faint)">${(tv*100).toFixed(1)}%</text>`;}
+ s+=`<path d="${path(ra,v=>ry(v))}" fill="none" stroke="var(--signal)" stroke-width="1.3" clip-path="url(#pc)"/>`;
+
+ // ---- Z4 downside ----
+ s+=LBL(dsBand,`DOWNSIDE DEVIATION ${A.dsdWin}d`);
+ s+=`<line x1="${padL}" x2="${W-padR}" y1="${dyf(0)}" y2="${dyf(0)}" stroke="var(--faint)"/>`;
+ for(const tv of [dmax,dmax/2]){const yy=dyf(tv);s+=`<text x="${padL-6}" y="${yy+3}" font-size="8" text-anchor="end" fill="var(--faint)">${(tv*100).toFixed(1)}%</text>`;}
+ s+=`<path d="${path(da,v=>dyf(v))}" fill="none" stroke="var(--amber)" stroke-width="1.3" clip-path="url(#pc)"/>`;
+
+ // ---- markers + brackets (gutter); labels de-collided — audit PRODUCTION regimes vs price truth ----
+ const brY=gutTop+LAYOUT.gh*0.50, exLbY=brY-9, reLbY=brY+15;
+ const exLabels=[], reLabels=[];
+ for(const c of cycles){
+   if(inV(c.peakIdx))s+=`<path d="M ${x(c.peakIdx)} ${ddy(0)-11} l -5 9 l 10 0 Z" fill="var(--bear)"/>`;
+   if(inV(c.troughIdx))s+=`<path d="M ${x(c.troughIdx)} ${ddy(dd[c.troughIdx])+11} l -5 -9 l 10 0 Z" fill="var(--bull)"/>`;
+   if(!c.cMiss){
+     if(inV(c.cd)){s+=`<circle cx="${x(c.cd)}" cy="${ddy(dd[c.cd])}" r="3.1" fill="var(--bear)" stroke="var(--bg)" stroke-width="1"/>`;
+       s+=`<circle cx="${x(c.cd)}" cy="${dotY(c.cd)}" r="3.2" fill="var(--bear)"/>`;}
+     if(c.cd>=i0&&c.peakIdx<=i1){const ex=cx(x(c.peakIdx)),dx=cx(x(c.cd));
+       s+=`<path d="M ${ex} ${brY-4} L ${ex} ${brY} L ${dx} ${brY} L ${dx} ${brY-4}" fill="none" stroke="var(--bear)" stroke-width="1.2"/>`;
+       const txt=`exit +${c.clag}d · ${(c.ccost*100).toFixed(0)}%`;exLabels.push({mx:(ex+dx)/2,w:txt.length*4.7,txt});}
+   }else if(inV(c.peakIdx)){exLabels.push({mx:x(c.peakIdx)+22,w:9*4.9,txt:'missed ✕'});}
+   if(!c.cMiss&&!c.rMiss){
+     if(inV(c.rd)){s+=`<circle cx="${x(c.rd)}" cy="${dotY(c.rd)}" r="3.2" fill="var(--bull)"/>`;
+       s+=`<circle cx="${x(c.rd)}" cy="${ddy(dd[c.rd])}" r="3.1" fill="var(--bull)" stroke="var(--bg)" stroke-width="1"/>`;}
+     if(c.rd>=i0&&c.troughIdx<=i1){const ex=cx(x(c.troughIdx)),dx=cx(x(c.rd));
+       s+=`<path d="M ${ex} ${brY+4} L ${ex} ${brY} L ${dx} ${brY} L ${dx} ${brY+4}" fill="none" stroke="var(--bull)" stroke-width="1.2"/>`;
+       const txt=`re-entry +${c.rlag}d · +${(c.rcost*100).toFixed(0)}%`;reLabels.push({mx:(ex+dx)/2,w:txt.length*4.7,txt});}
+   }
+ }
+ const drawLabels=(arr,y,col)=>{arr.sort((a,b)=>a.mx-b.mx);let lastR=-1e9;
+   for(const L of arr){const left=L.mx-L.w/2;if(left<lastR+4)continue;lastR=L.mx+L.w/2;
+     s+=`<text x="${L.mx}" y="${y}" font-size="9" text-anchor="middle" fill="${col}" font-weight="700">${L.txt}</text>`;}};
+ drawLabels(exLabels,exLbY,'var(--bear)');drawLabels(reLabels,reLbY,'var(--bull)');
+
+ // x dates across the visible window
+ for(let q=0;q<=8;q++){const i=Math.round(i0+q/8*span);const d=dlabel(i);
+   s+=`<text x="${x(i)}" y="${H-5}" font-size="9" text-anchor="middle" fill="var(--faint)">${MONTHS[d.getMonth()]} ’${String(d.getFullYear()).slice(2)}</text>`;}
+
+ // ================= HIT LAYER (tooltips) =================
+ let hbn=0,hrn=0;
+ for(const sg of det.segs){const bull=sg.st===0;const inst=bull?++hbn:++hrn;
+   const a=Math.max(sg.a,i0),b=Math.min(sg.b-1,i1);if(b<a)continue;const x0=x(a),w=Math.max(1,x(b)-x0);
+   const t=`${bull?'Bull':'Bear'} regime ${inst} · production`;
+   const body=`${fmtDate(dlabel(sg.a))} → ${fmtDate(dlabel(sg.b-1))} · <b>${sg.b-sg.a} days</b>. Median return <b>${(sg.ret*100).toFixed(2)}%/day</b>, downside dev <b>${(sg.dsd*100).toFixed(2)}%</b>, max drawdown <b>${(sg.maxdd*100).toFixed(0)}%</b>. This is the committed production regime (the traded selection). The shade marks the stretch; severity lives in the numbers and the ledger.`;
+   s+=`<rect class="hit" x="${x0}" y="${dwTop}" width="${w}" height="${ph1}" fill="transparent"${tt(t,body)}/>`;
+   s+=`<rect class="hit" x="${x0}" y="${sgTop}" width="${w}" height="${dsTop+ph4-sgTop}" fill="transparent"${tt(t,body)}/>`;}
+ const plab=[
+   [dwBand,'Drawdown from peak (underwater)','How far price sits below its running high. 0% = at the highs; each trough shows the depth of a selloff. The ▲/▼ market events and the exit/re-entry dots live on this curve.'],
+   [sgBand,'P(bear) signal · smoothed (production)','The EWMA-smoothed probability the strategy ACTS ON (State_Prob). Production shades bear where this crosses the read-only production θ. The raw signal is available only in the what-if overlay.'],
+   [rtBand,`Avg return (${A.retWin}d)`,'Rolling mean daily return. Positive in bull regimes, negative in bear. Watch it roll below zero in the run-up to a crash — a feature that leads the switch.'],
+   [dsBand,`Downside deviation (${A.dsdWin}d)`,'Semi-deviation of negative returns (the denominator of Sortino), recomputed at the pipeline EWMA half-life. Low in calm regimes, it spikes where losses cluster.'],
+ ];
+ for(const [by,t,d] of plab)s+=`<rect class="hit" x="${padL-4}" y="${by}" width="220" height="${hb}" fill="transparent"${tt(t,d)}/>`;
+ if(theta!=null)s+=`<rect class="hit" x="${padL}" y="${sy(theta)-5}" width="${iw}" height="10" fill="transparent"${tt('Production θ = '+theta.toFixed(2),'Read-only production threshold on the smoothed p_bear (= 1 − bull_prob_threshold). The strategy holds the asset while smoothed p_bear stays below this; above it the asset is a bear (not selected). To test other thresholds, use the what-if overlay.')}/>`;
+ for(const c of cycles){const pdt=fmtDate(dlabel(c.peakIdx)),tdt=fmtDate(dlabel(c.troughIdx));
+   if(inV(c.peakIdx))s+=`<circle class="hit" cx="${x(c.peakIdx)}" cy="${ddy(0)-6}" r="10" fill="transparent"${tt('Crash top · '+pdt,'The market peak just before a <b>'+(c.maxdd*100).toFixed(0)+'%</b> drawdown — the truth event. The exit lag is measured from here against the production regime.')}/>`;
+   if(inV(c.troughIdx))s+=`<circle class="hit" cx="${x(c.troughIdx)}" cy="${ddy(dd[c.troughIdx])+6}" r="10" fill="transparent"${tt('Recovery trough · '+tdt,'The bottom of the drawdown — the best moment to re-enter. The re-entry lag is measured from here.')}/>`;
+   if(!c.cMiss){const cdt=fmtDate(dlabel(c.cd));
+     const et=tt('Exit · production · '+cdt,'The production regime turned bear here, <b>'+c.clag+' days</b> after the top. By now <b>'+(c.ccost*100).toFixed(0)+'%</b> of drawdown was already taken — the cost of the delay.');
+     if(inV(c.cd)){s+=`<circle class="hit" cx="${x(c.cd)}" cy="${ddy(dd[c.cd])}" r="9" fill="transparent"${et}/>`;
+       s+=`<circle class="hit" cx="${x(c.cd)}" cy="${dotY(c.cd)}" r="9" fill="transparent"${et}/>`;}
+     if(c.cd>=i0&&c.peakIdx<=i1){const ex=cx(x(c.peakIdx)),dx=cx(x(c.cd));
+       s+=`<rect class="hit" x="${Math.min(ex,dx)}" y="${exLbY-8}" width="${Math.max(2,Math.abs(dx-ex))}" height="${brY-exLbY+10}" fill="transparent"${tt('Exit lag +'+c.clag+'d · '+(c.ccost*100).toFixed(0)+'%','Trading days from the market top until the production regime went bear. The amber figure is the drawdown already taken in that gap.')}/>`;}
+   }else if(inV(c.peakIdx)){
+     s+=`<rect class="hit" x="${x(c.peakIdx)}" y="${exLbY-8}" width="80" height="18" fill="transparent"${tt('Missed crash','The production regime never went bear during this drawdown. The full <b>'+(c.maxdd*100).toFixed(0)+'%</b> drawdown is taken, with no clean re-entry.')}/>`;
+   }
+   if(!c.cMiss&&!c.rMiss&&c.rd>=i0&&c.troughIdx<=i1){const ex=cx(x(c.troughIdx)),dx=cx(x(c.rd));
+     s+=`<rect class="hit" x="${Math.min(ex,dx)}" y="${brY-4}" width="${Math.max(2,Math.abs(dx-ex))}" height="${reLbY-brY+8}" fill="transparent"${tt('Re-entry lag +'+c.rlag+'d · +'+(c.rcost*100).toFixed(0)+'%','Trading days from the trough until the production regime went bull again, and the rebound already missed in that gap.')}/>`;}
+ }
+ s+=`</svg>`;
+ CUR={i0,i1,padL,iw,W,H,dwTop,botY:dsTop+ph4,sym:A.sym,dd,P:A.P,ra,da,ddy,sy,ry,dyf,
+      xf:i=>x(i), idxAt:px=>Math.max(i0,Math.min(i1,Math.round(i0+(px-padL)/iw*span)))};
+ return s;
+}
+
+let state={key:null,Dmin:0.15,stat:"median",rfilter:"both",retWin:21,dsdWin:21,
+           ref:"none",overlay:false,ledsort:"date",ledmat:"all",ledcrash:"off",
+           w:{sig:"smooth",theta:0.40,clear:0,dwell:1,minlen:0}};
+
+function matchCyc(cycles,seg){let best=null,bd=1e9;for(const c of cycles){if(c.cMiss)continue;const d=Math.abs(c.cd-seg.a);if(c.cd>=seg.a-6&&c.cd<=seg.b&&d<bd){bd=d;best=c;}}return best;}
+function isMaterial(sg){return sg.st===0?(sg.b-sg.a)>=10:((sg.b-sg.a)>=5&&Math.abs(sg.maxdd)>=0.03);}
+
+function render(){
+ const agg=state.stat==="median"?median:mean;
+ const A=getAsset(state.key);
+ CURA=A; NDAYS=A.n;
+ if(view.i1===0||view.i1>NDAYS-1){view={i0:0,i1:NDAYS-1};}
+ A.retWin=state.retWin;A.dsdWin=state.dsdWin;
+ A.retW=A.ret[state.retWin];A.dsdW=A.dsd[state.dsdWin];
+ A.P=A.Psm;                                   // production signal panel = smoothed p_bear
+ const theta=PRODUCTION.theta;
+ const prod=buildRegime(A,A.regimes,agg);     // PRODUCTION committed regime (from payload)
+ const cycles=analyse(A,prod.lab,state.Dmin); // audit production vs price truth
+
+ // overlays (outlined, never replace production fills)
+ const overlays=[];let wf=null,ocycles=null;
+ if(state.ref==='jm'){const jm=buildRegime(A,A.jm,agg);overlays.push({segs:jm.segs,color:'var(--amber)',dash:'4 3'});}
+ if(state.overlay){const lab=overlayLabel(A,state.w);wf=buildRegime(A,labToSegs(lab),agg);
+   overlays.push({segs:wf.segs,color:'var(--violet)',dash:'3 2',fill:'url(#ovhatch)'});
+   ocycles=analyse(A,lab,state.Dmin);}
+
+ SCENE={A,det:prod,cycles,theta,overlays};
+ document.getElementById('chart').innerHTML=chart(A,prod,cycles,theta,overlays);
+ renderOverview(A,prod);
+
+ // PRODUCTION badge
+ const P=PRODUCTION;
+ document.getElementById('prodbadge').innerHTML=
+   `<span class="dotp"></span><span class="pb-t">Production</span>`+
+   `<span class="pb-d" title="${esc(P.source)} · ${esc(P.config)}">signal=${P.signal} · θ=${P.theta==null?'—':P.theta.toFixed(2)} · rule=${P.rule} · dwell=${P.dwell==null?'n/a (portfolio '+P.portfolio.dwell+'d)':P.dwell} · src=${esc(P.source)}</span>`;
+
+ // what-if strip + diff
+ const wEl=document.getElementById('whatif');wEl.hidden=!state.overlay;
+ if(state.overlay&&wf){const days=A.n;let reclass=0;for(let i=0;i<days;i++)if(prod.lab[i]!==wf.lab[i])reclass++;
+   let diffCatch=0;for(let k=0;k<cycles.length;k++){if(cycles[k].cMiss!==ocycles[k].cMiss||cycles[k].clag!==ocycles[k].clag)diffCatch++;}
+   document.getElementById('wdiff').innerHTML=
+     `production: <b>${prod.segs.length}</b> regimes · overlay: <b>${wf.segs.length}</b> regimes · <b>${reclass}</b> days reclassified (${(100*reclass/days).toFixed(1)}%) · <b>${diffCatch}/${cycles.length}</b> crashes detected differently. `+
+     `The violet hatched bands are hypothetical — production (the solid fills) is unchanged.`;}
+
+ // KPIs — measured against PRODUCTION regimes (overlay adds a parenthetical when on)
+ const cl=cycles.filter(c=>!c.cMiss).map(c=>c.clag), cc=cycles.filter(c=>!c.cMiss).map(c=>c.ccost);
+ const rl=cycles.filter(c=>!c.cMiss&&!c.rMiss).map(c=>c.rlag), rc=cycles.filter(c=>!c.cMiss&&!c.rMiss).map(c=>c.rcost);
+ const misses=cycles.filter(c=>c.cMiss).length;
+ const bears=prod.segs.filter(z=>z.st===1);const bcv=(()=>{const m=mean(bears.map(z=>z.vol));return m?stdOf(bears.map(z=>z.vol))/m:0;})();
+ const F=(v,d=0)=>isNaN(v)?'—':(v*100).toFixed(d)+'%';
+ const ov=(fn)=>{if(!state.overlay||!ocycles)return '';const v=fn(ocycles);return v==null?'':` <small style="color:var(--violet)">wi ${v}</small>`;};
+ const k=[
+   ['bear','Median crash lag',isNaN(median(cl))?'—':median(cl),'d','top → bear call · production'+(state.overlay?ov(oc=>{const a=oc.filter(c=>!c.cMiss).map(c=>c.clag);return isNaN(median(a))?'—':median(a)+'d';}):''),
+     'Median crash lag','Median trading days between the market top (▲) and the PRODUCTION regime turning bear. Measured against realised price tops.'],
+   ['cost','Drawdown before exit',F(median(cc),0),'','taken in the gap',
+     'Drawdown before exit','How much price had already fallen from the top by the time the production regime went bear — the money cost of the lag.'],
+   ['bull','Median recovery lag',isNaN(median(rl))?'—':median(rl),'d','trough → re-entry',
+     'Median recovery lag','Median trading days from the market bottom (▼) to the production regime going bull again.'],
+   ['cost','Rebound missed',isNaN(median(rc))?'—':'+'+F(median(rc),0),'','before re-entry',
+     'Rebound missed','How much price had already bounced off the bottom before the production regime went bull — upside left on the table.'],
+   ['feat','Bear heterogeneity',(bcv*100).toFixed(0)+'%','','vol spread · '+cycles.length+' crashes, '+misses+' missed',
+     'Bear heterogeneity','Coefficient of variation of volatility across the production bear regimes. Also shows how many price crashes were found and how many the production regime missed.'],
+ ];
+ document.getElementById('kpis').innerHTML=k.map(([c,l,v,u,f,tT,tD])=>
+   `<div class="kpi ${c}"${tt(tT,tD)}><span class="tick"></span><div class="lab">${l}</div><div class="val">${v}<small>${u}</small></div><div class="foot">${f}</div></div>`).join('');
+
+ // ---- global Bull-vs-Bear comparison over PRODUCTION labels ----
+ const bullDays=[],bearDays=[];for(let i=0;i<NDAYS;i++)(prod.lab[i]===0?bullDays:bearDays).push(i);
+ const rB=agg(bullDays.map(i=>A.retW[i])), rR=agg(bearDays.map(i=>A.retW[i]));
+ const dB=agg(bullDays.map(i=>A.dsdW[i])), dR=agg(bearDays.map(i=>A.dsdW[i]));
+ const fpRow=(name,bull,bear,includeZero,tipB)=>{const vals=[bull,bear];if(includeZero)vals.push(0);
+   const lo=Math.min(...vals),hi=Math.max(...vals);const pad=(hi-lo)*0.18||Math.abs(hi)*0.2||0.001;
+   const sc=v=>((v-(lo-pad))/((hi+pad)-(lo-pad)))*100;const xb=sc(bull),xr=sc(bear);
+   return `<div class="frow"${tt(name+' · bull vs bear',tipB+` Here bull = <b>${(bull*100).toFixed(2)}%</b>, bear = <b>${(bear*100).toFixed(2)}%</b>.`)}><div class="ft"><span>${name}</span><span class="sep" style="color:var(--faint)">gap ${(Math.abs(bull-bear)*100).toFixed(2)}%</span></div>
+     <div class="track"><div class="axis"></div>
+       <div class="link" style="left:${Math.min(xb,xr)}%;width:${Math.abs(xr-xb)}%"></div>
+       <div class="vlab" style="left:${xb}%;color:var(--bull)">${(bull*100).toFixed(2)}%</div>
+       <div class="dot" style="left:${xb}%;background:var(--bull)"></div>
+       <div class="dot" style="left:${xr}%;background:var(--bear)"></div>
+       <div class="vlab bot" style="left:${xr}%;color:var(--bear)">${(bear*100).toFixed(2)}%</div>
+     </div></div>`;};
+ document.getElementById('regfp').innerHTML=
+   `<div class="cap"${tt('Bull vs Bear fingerprint · production','Aggregate '+state.stat+' of each feature across all bull vs bear days of the PRODUCTION regime. Wide separation = the committed regimes capture something real.')}><span>Bull vs Bear · production · ${state.stat}</span><span class="lg"><span><i style="background:var(--bull)"></i>bull</span><span><i style="background:var(--bear)"></i>bear</span></span></div>`
+   + fpRow('Avg return '+state.retWin+'d', rB, rR, true, 'The everyday return in each regime.')
+   + fpRow('Downside deviation '+state.dsdWin+'d', dB, dR, false, 'Volatility of losses. Bear should sit well above bull.');
+
+ // ---- per-regime cards over PRODUCTION segments: filter + sort ----
+ let nb=0,nr=0;prod.segs.forEach(sg=>{sg.inst=sg.st===0?++nb:++nr;});
+ let shown=prod.segs.filter(sg=>state.rfilter==='both'||(state.rfilter==='bull'&&sg.st===0)||(state.rfilter==='bear'&&sg.st===1));
+ if(state.ledmat==='material')shown=shown.filter(isMaterial);
+ if(state.ledcrash==='on')shown=shown.filter(sg=>sg.st===1&&matchCyc(cycles,sg));
+ const sorter={date:(a,b)=>b.a-a.a, dd:(a,b)=>Math.abs(b.maxdd)-Math.abs(a.maxdd),
+   lag:(a,b)=>{const la=(matchCyc(cycles,a)||{}).clag,lb=(matchCyc(cycles,b)||{}).clag;return (lb==null?-1:lb)-(la==null?-1:la);}}[state.ledsort];
+ document.getElementById('lwrap').innerHTML=[...shown].sort(sorter).map(sg=>{
+   const bull=sg.st===0;const dur=sg.b-sg.a;
+   const dates=`${fmtDate(dlabel(sg.a))} → ${fmtDate(dlabel(sg.b-1))}`;
+   let timeliness='';
+   if(!bull){const c=matchCyc(cycles,sg);
+     if(c){const exit=`+${c.clag}d · ${(c.ccost*100).toFixed(0)}%`;
+       const re=c.rMiss?'never':`+${c.rlag}d · +${(c.rcost*100).toFixed(0)}%`;
+       timeliness=`<div class="lags">
+         <div class="lg"${tt('Exit lag · cost','This production bear was flagged '+c.clag+' trading days after the market top, by which point '+(c.ccost*100).toFixed(0)+'% of drawdown was already taken.')}><div class="h">exit lag · cost</div><div class="b" style="font-size:13px;color:var(--bear)">${exit}</div></div>
+         <div class="lg"${tt('Re-entry · missed',c.rMiss?'The production regime never went bull inside the window — no clean re-entry.':'Re-entry came '+c.rlag+' days after the trough, with +'+(c.rcost*100).toFixed(0)+'% of the rebound already missed.')}><div class="h">re-entry · missed</div><div class="b" style="font-size:13px;color:var(--bull)">${re}</div></div></div>`;}}
+   const cardTip=tt(`${bull?'Bull':'Bear'} regime ${sg.inst} · production`,
+     `${dates} · <b>${dur} days</b>. Committed production regime. Median return <b>${(sg.ret*100).toFixed(2)}%/day</b>, downside deviation <b>${(sg.dsd*100).toFixed(2)}%</b>, worst within-regime drawdown <b>${(sg.maxdd*100).toFixed(0)}%</b>.${bull?'':' The exit/re-entry figures show how timely and costly the production detection was.'} Click to zoom the chart to this regime.`);
+   return `<div class="rc ${bull?'bull':'bear'}" data-a="${sg.a}" data-b="${sg.b}"${cardTip}><div class="top">
+     <span class="nm"><span class="d" style="background:${bull?'var(--bull)':'var(--bear)'}"></span>${bull?'Bull':'Bear'} ${sg.inst}</span>
+     <span class="len">${dur}d</span></div>
+     <div class="dates">${dates}</div>
+     <div class="char">
+       <div class="m"${tt('Median return',(state.stat==='mean'?'Mean':'Median')+' daily avg-return ('+state.retWin+'d) inside this regime.')}><span class="k">med return</span><span class="v">${(sg.ret*100).toFixed(2)}%</span></div>
+       <div class="m"${tt('Downside deviation','Typical size of the down-moves inside this regime.')}><span class="k">downside</span><span class="v">${(sg.dsd*100).toFixed(2)}%</span></div>
+       <div class="m"${tt('Max drawdown','Deepest peak-to-trough fall within this regime alone.')}><span class="k">maxDD</span><span class="v">${(sg.maxdd*100).toFixed(0)}%</span></div></div>
+     ${timeliness}</div>`;
+ }).join('') || `<div class="rc"><div class="top"><span class="nm">No regimes in filter</span></div></div>`;
+
+ document.getElementById('foot').innerHTML=
+   `Audit view · The default red/green shading is the pipeline's <b>committed production regime</b> — the traded selection rule (${PRODUCTION.rule}) on the smoothed p_bear, θ=${PRODUCTION.theta==null?'—':PRODUCTION.theta.toFixed(2)}, from <b>${esc(PRODUCTION.source)}</b>. The dotted verticals are the <b>truth</b>: realised crash tops (▲) and recovery troughs (▼) from the underwater drawdown. The gutter brackets audit the production regime against those truth events — the gap is the <b>lag</b> (days) and the amber figure the drawdown taken in it. The <b>what-if overlay</b> (violet hatched) is hypothetical and never replaces production; the JM-label reference (amber) lets you compare the jump-model labels against the traded regime. Every lag, cost and KPI here measures the PRODUCTION regime; downside is the Sortino denominator (semi-deviation) at the pipeline half-life.`;
+}
+
+// ---- asset selector + control wiring ----
+const sel=document.getElementById('asset');
+KEYS.forEach(k=>{const p=PAYLOAD[k];const o=document.createElement('option');o.value=k;o.textContent=`${p.name} · ${p.sym}`;sel.appendChild(o);});
+const DEF=KEYS.find(k=>PAYLOAD[k].name==='LargeCap')||KEYS[0];
+sel.value=DEF;state.key=DEF;
+sel.addEventListener('change',e=>{state.key=e.target.value;view={i0:0,i1:0};render();});
+function segWire(id,key,cast){const box=document.getElementById(id);if(!box)return;
+ box.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+   [...box.children].forEach(c=>c.setAttribute('aria-pressed',c===b));state[key]=cast?cast(b.dataset.v):b.dataset.v;render();});}
+function segWireW(id,key,cast){const box=document.getElementById(id);if(!box)return;
+ box.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+   [...box.children].forEach(c=>c.setAttribute('aria-pressed',c===b));state.w[key]=cast?cast(b.dataset.v):b.dataset.v;render();});}
+segWire('dmin','Dmin',parseFloat);segWire('stat','stat');segWire('rfilter','rfilter');
+segWire('retwin','retWin',parseInt);segWire('dsdwin','dsdWin',parseInt);
+segWire('ref','ref');
+segWire('ledsort','ledsort');segWire('ledmat','ledmat');segWire('ledcrash','ledcrash');
+document.getElementById('ovtoggle').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+ [...e.currentTarget.children].forEach(c=>c.setAttribute('aria-pressed',c===b));state.overlay=b.dataset.v==='on';render();});
+segWireW('wsig','sig');segWireW('wtheta','theta',parseFloat);segWireW('wclear','clear',parseFloat);
+segWireW('wdwell','dwell',parseInt);segWireW('wminlen','minlen',parseInt);
+document.getElementById('wreset').addEventListener('click',()=>{
+ state.overlay=false;state.w={sig:"smooth",theta:0.40,clear:0,dwell:1,minlen:0};
+ [...document.getElementById('ovtoggle').children].forEach(c=>c.setAttribute('aria-pressed',c.dataset.v==='off'));
+ const reset=(id,v)=>{const box=document.getElementById(id);[...box.children].forEach(c=>c.setAttribute('aria-pressed',c.dataset.v===v));};
+ reset('wsig','smooth');reset('wtheta','0.40');reset('wclear','0');reset('wdwell','1');reset('wminlen','0');render();});
+
+// ============ focus + context zoom, overview brush, crosshair ============
+const chartEl=document.getElementById('chart');
+const cwrap=document.querySelector('.chartwrap');
+const cross=document.getElementById('cross'), chx=document.getElementById('chx');
+const chd=[0,1,2,3].map(i=>document.getElementById('chd'+i));
+const chread=document.getElementById('chread');
+const ovEl=document.getElementById('overview');
+const presetBox=document.getElementById('preset');
+
+let raf=null;
+function setView(a,b){
+ a=Math.round(a);b=Math.round(b);
+ if(b-a<40){const c=(a+b)/2;a=c-20;b=c+20;}
+ if(a<0){b-=a;a=0;} if(b>NDAYS-1){a-=(b-(NDAYS-1));b=NDAYS-1;} a=Math.max(0,a);
+ view.i0=a;view.i1=b;
+ if(!raf)raf=requestAnimationFrame(()=>{raf=null;
+   if(SCENE)chartEl.innerHTML=chart(SCENE.A,SCENE.det,SCENE.cycles,SCENE.theta,SCENE.overlays);
+   updateBrush();syncPreset();});
+}
+function syncPreset(){const full=view.i0===0&&view.i1===NDAYS-1;
+ [...presetBox.children].forEach(btn=>{const y=+btn.dataset.v;
+   const want=y===0?full:(!full&&view.i1===NDAYS-1&&view.i0===Math.max(0,NDAYS-1-Math.round(y*252)));
+   btn.setAttribute('aria-pressed',!!want);});}
+
+// ---- overview strip (full history + draggable window) ----
+const OV={W:880,H:48,padL:48,padR:14};OV.iw=OV.W-OV.padL-OV.padR;
+const ovx=i=>OV.padL+i/(NDAYS-1)*OV.iw;
+function renderOverview(A,det){
+ const peak=new Float64Array(NDAYS);let rp=A.price[0];for(let i=0;i<NDAYS;i++){rp=Math.max(rp,A.price[i]);peak[i]=rp;}
+ let mn=0;const dd=new Float64Array(NDAYS);for(let i=0;i<NDAYS;i++){dd[i]=A.price[i]/peak[i]-1;if(dd[i]<mn)mn=dd[i];}
+ const fl=Math.min(-0.05,mn*1.05);const oy=v=>4+(-v)/(-fl)*(OV.H-14);
+ const stride=Math.max(1,Math.round(NDAYS/900));
+ let d='';for(let i=0;i<NDAYS;i+=stride)d+=(d?' L ':'M ')+ovx(i).toFixed(1)+' '+oy(dd[i]).toFixed(1);
+ let bands='';for(const sg of det.segs){if(sg.st!==1)continue;bands+=`<rect x="${ovx(sg.a).toFixed(1)}" y="${OV.H-4}" width="${Math.max(1,ovx(sg.b-1)-ovx(sg.a)).toFixed(1)}" height="3" fill="var(--bear)" opacity=".7"/>`;}
+ ovEl.innerHTML=`<svg viewBox="0 0 ${OV.W} ${OV.H}" preserveAspectRatio="none">
+   <rect x="${OV.padL}" y="2" width="${OV.iw}" height="${OV.H-4}" fill="var(--panel2)" stroke="var(--line)"/>
+   <path d="${d}" fill="none" stroke="var(--muted)" stroke-width="0.8"/>${bands}
+   <g id="brush"><rect id="brushbody" y="2" height="${OV.H-4}" fill="rgba(91,209,230,.12)" stroke="var(--signal)" stroke-width="1"/>
+   <rect id="brushL" y="2" width="4" height="${OV.H-4}" fill="var(--signal)" opacity=".8"/><rect id="brushR" y="2" width="4" height="${OV.H-4}" fill="var(--signal)" opacity=".8"/></g></svg>`;
+ updateBrush();
+}
+function updateBrush(){const b=document.getElementById('brushbody');if(!b)return;
+ const xl=ovx(view.i0),xr=ovx(view.i1);
+ b.setAttribute('x',xl);b.setAttribute('width',Math.max(2,xr-xl));
+ document.getElementById('brushL').setAttribute('x',xl-2);
+ document.getElementById('brushR').setAttribute('x',xr-2);}
+function ovIdx(clientX){const r=ovEl.getBoundingClientRect();const sx=(clientX-r.left)/r.width*OV.W;
+ return Math.max(0,Math.min(NDAYS-1,Math.round((sx-OV.padL)/OV.iw*(NDAYS-1))));}
+let ovDrag=null;
+ovEl.addEventListener('pointerdown',e=>{const i=ovIdx(e.clientX);
+ let mode='new';if(Math.abs(i-view.i0)*(OV.iw/(NDAYS-1))<8)mode='L';else if(Math.abs(i-view.i1)*(OV.iw/(NDAYS-1))<8)mode='R';else if(i>view.i0&&i<view.i1)mode='pan';
+ ovDrag={mode,startI:i,i0:view.i0,i1:view.i1};if(mode==='new'){setView(i,i+Math.round((view.i1-view.i0)||252));}
+ ovEl.setPointerCapture(e.pointerId);e.preventDefault();});
+ovEl.addEventListener('pointermove',e=>{if(!ovDrag)return;const i=ovIdx(e.clientX);const di=i-ovDrag.startI;
+ if(ovDrag.mode==='L')setView(Math.min(i,ovDrag.i1-40),ovDrag.i1);
+ else if(ovDrag.mode==='R')setView(ovDrag.i0,Math.max(i,ovDrag.i0+40));
+ else if(ovDrag.mode==='pan')setView(ovDrag.i0+di,ovDrag.i1+di);
+ else setView(ovDrag.startI,i);});
+window.addEventListener('pointerup',()=>{ovDrag=null;});
+
+// ---- presets ----
+presetBox.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const y=+b.dataset.v;
+ if(y===0)setView(0,NDAYS-1);else setView(Math.max(0,NDAYS-1-Math.round(y*252)),NDAYS-1);});
+
+// ---- wheel zoom (about cursor) ----
+chartEl.addEventListener('wheel',e=>{e.preventDefault();const r=cross.getBoundingClientRect();
+ const sx=(e.clientX-r.left)/r.width*LAYOUT.W;const frac=Math.max(0,Math.min(1,(sx-LAYOUT.padL)/LAYOUT.iw));
+ const span=view.i1-view.i0;const ctr=view.i0+frac*span;const f=e.deltaY>0?1.2:1/1.2;
+ const ns=Math.max(40,Math.min(NDAYS-1,Math.round(span*f)));setView(ctr-frac*ns,ctr-frac*ns+ns);},{passive:false});
+
+// ---- drag to pan ----
+let pan=null;
+chartEl.addEventListener('pointerdown',e=>{pan={x:e.clientX,i0:view.i0,i1:view.i1,w:cross.getBoundingClientRect().width};chartEl.setPointerCapture(e.pointerId);});
+chartEl.addEventListener('pointermove',e=>{if(!pan)return;const span=pan.i1-pan.i0;
+ const plotW=pan.w*(LAYOUT.iw/LAYOUT.W);const di=Math.round(-(e.clientX-pan.x)/plotW*span);setView(pan.i0+di,pan.i1+di);});
+window.addEventListener('pointerup',()=>{pan=null;});
+
+// ---- crosshair + readout ----
+function moveCross(clientX){if(!CUR)return;const r=cross.getBoundingClientRect();
+ const sx=(clientX-r.left)/r.width*CUR.W;
+ if(sx<CUR.padL||sx>CUR.padL+CUR.iw){hideCross();return;}
+ const i=CUR.idxAt(sx),X=CUR.xf(i);
+ chx.setAttribute('x1',X);chx.setAttribute('x2',X);chx.setAttribute('y1',CUR.dwTop);chx.setAttribute('y2',CUR.botY);chx.setAttribute('opacity','.45');
+ const ys=[CUR.ddy(CUR.dd[i]),CUR.sy(CUR.P[i]),CUR.ry(CUR.ra[i]),CUR.dyf(CUR.da[i])];
+ const cols=['var(--bear)','var(--signal)','var(--signal)','var(--amber)'];
+ chd.forEach((c,k)=>{c.setAttribute('cx',X);c.setAttribute('cy',ys[k]);c.setAttribute('fill',cols[k]);c.setAttribute('opacity','1');});
+ chread.innerHTML=`<div class="cd">${fmtDate(dlabel(i))}</div>`+
+  `<div class="cr"><span>drawdown</span><b style="color:var(--bear)">${(CUR.dd[i]*100).toFixed(1)}%</b></div>`+
+  `<div class="cr"><span>p(bear) sm</span><b style="color:var(--signal)">${CUR.P[i].toFixed(2)}</b></div>`+
+  `<div class="cr"><span>return</span><b style="color:var(--signal)">${(CUR.ra[i]*100).toFixed(2)}%</b></div>`+
+  `<div class="cr"><span>downside</span><b style="color:var(--amber)">${(CUR.da[i]*100).toFixed(2)}%</b></div>`;
+ chread.style.display='block';}
+function hideCross(){chx.setAttribute('opacity','0');chd.forEach(c=>c.setAttribute('opacity','0'));chread.style.display='none';}
+cwrap.addEventListener('pointermove',e=>{if(!pan)moveCross(e.clientX);});
+cwrap.addEventListener('pointerleave',hideCross);
+
+// ---- ledger card: hover dims other production bands; click zooms the chart to that regime ----
+const lwrapEl=document.getElementById('lwrap');
+lwrapEl.addEventListener('pointerover',e=>{const card=e.target.closest('.rc[data-a]');if(!card)return;
+ const a=card.dataset.a;document.querySelectorAll('#chart .regband').forEach(r=>{if(r.getAttribute('data-seg')!==a)r.classList.add('dimband');});});
+lwrapEl.addEventListener('pointerout',e=>{if(e.target.closest('.rc[data-a]'))document.querySelectorAll('#chart .regband.dimband').forEach(r=>r.classList.remove('dimband'));});
+lwrapEl.addEventListener('click',e=>{const card=e.target.closest('.rc[data-a]');if(!card)return;
+ const a=+card.dataset.a,b=+card.dataset.b,pad=Math.round((b-a)*0.6)+30;setView(a-pad,b+pad);
+ document.querySelector('.scope').scrollIntoView({behavior:'smooth',block:'nearest'});});
+
+// tooltip engine
+const tipEl=document.getElementById('tip');
+function showTip(t,d,x,y){tipEl.innerHTML=`<div class="tt-t">${t}</div>`+(d?`<div class="tt-d">${d}</div>`:'');
+ tipEl.style.display='block';const w=tipEl.offsetWidth,h=tipEl.offsetHeight,pad=15;
+ let px=x+pad,py=y+pad;if(px+w>window.innerWidth-8)px=x-w-pad;if(py+h>window.innerHeight-8)py=y-h-pad;
+ tipEl.style.left=Math.max(6,px)+'px';tipEl.style.top=Math.max(6,py)+'px';}
+document.addEventListener('pointermove',e=>{const el=e.target.closest?e.target.closest('[data-tt]'):null;
+ if(el)showTip(el.getAttribute('data-tt'),el.getAttribute('data-td')||'',e.clientX,e.clientY);else tipEl.style.display='none';});
+document.addEventListener('pointerleave',()=>tipEl.style.display='none');
+
+render();
+</script>

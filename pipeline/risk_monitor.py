@@ -15,8 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Optional
+from enum import StrEnum
 
 import pandas as pd
 
@@ -25,12 +24,12 @@ from pipeline.config import PipelineConfig
 logger = logging.getLogger(__name__)
 
 
-class State(str, Enum):
+class State(StrEnum):
     RISK_ON = "risk_on"
     RISK_OFF = "risk_off"
 
 
-class Transition(str, Enum):
+class Transition(StrEnum):
     NONE = "none"
     TRIGGER = "trigger"     # risk_on → risk_off
     CLEAR = "clear"         # risk_off → risk_on

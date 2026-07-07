@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 
 from pipeline.eval._base import EvalCheck, EvalContext, EvalResult, failed, passed
 

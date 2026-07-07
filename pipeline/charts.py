@@ -15,12 +15,10 @@ return ``None``; the calling page only needs to invoke them in order.
 """
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
-
 
 # Defensive → risk-on order used by the regime heatmap (vendor convention).
 _RISK_ORDER = [
@@ -95,7 +93,7 @@ def asset_regime_chart(
     range_label = ctrl_range.radio(
         "Time range",
         ["1M", "6M", "1Y", "5Y", "ALL"],
-        index=2,
+        index=1,  # default 6M
         horizontal=True,
         key=f"{key_prefix}_range",
     )

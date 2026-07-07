@@ -18,7 +18,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -51,7 +50,7 @@ def compute_metrics(
     *,
     total_tc: float = 0.0,
     total_tax: float = 0.0,
-    turnover_annual: Optional[float] = None,
+    turnover_annual: float | None = None,
 ) -> dict[str, float]:
     """Compute standard performance metrics on a daily-NAV series."""
     if nav.empty or len(nav) < 2:
@@ -268,7 +267,7 @@ def build_report(
     config: PipelineConfig,
     result: BacktestResult,
     *,
-    prices_with_rf: Optional[pd.DataFrame] = None,
+    prices_with_rf: pd.DataFrame | None = None,
     initial_capital: float = 100_000.0,
     force_refresh: bool = False,
 ) -> PerformanceReport:

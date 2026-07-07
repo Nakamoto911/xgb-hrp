@@ -15,10 +15,11 @@ We translate to bull-relative quantities so downstream rules read intuitively.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Callable, Literal, Optional
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -41,7 +42,7 @@ RuleName = Literal[
 @dataclass(frozen=True)
 class ForecastOutput:
     panel: pd.DataFrame
-    path: Optional[Path] = None
+    path: Path | None = None
 
 
 # -----------------------------------------------------------------------------
@@ -98,7 +99,7 @@ def build_forecasts(
     signals = compute_signals(config, force_refresh=force_refresh)
     panel = _project_to_forecast_panel(signals)
 
-    out_path_resolved: Optional[Path] = None
+    out_path_resolved: Path | None = None
     if save:
         config.cache_dir.mkdir(parents=True, exist_ok=True)
         panel.to_parquet(out_path)
@@ -181,10 +182,7 @@ def apply_rule(
     out: list[pd.DataFrame] = []
     for symbol, group in panel.groupby("symbol"):
         sub = group.set_index("date").sort_index()
-        if rule == "trend":
-            sel = fn(sub, window=trend_window)
-        else:
-            sel = fn(sub, theta=theta)
+        sel = fn(sub, window=trend_window) if rule == "trend" else fn(sub, theta=theta)
         out.append(
             pd.DataFrame(
                 {

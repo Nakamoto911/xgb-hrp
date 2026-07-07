@@ -23,7 +23,6 @@ from __future__ import annotations
 import logging
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -100,7 +99,7 @@ class TaxBook:
     pfu_rate: float
     carryforward_years: int
     # ordered by vintage year (insertion order). Value is the *positive* loss amount.
-    carryforward: "OrderedDict[int, float]" = field(default_factory=OrderedDict)
+    carryforward: OrderedDict[int, float] = field(default_factory=OrderedDict)
     # accumulators for the current calendar year
     year_realized: float = 0.0  # running sum of (gains - losses) for current year
     # historical record
@@ -298,7 +297,7 @@ class Executor:
             )
 
         # Execute buys (cash-constrained)
-        for s, dw, w_tgt in plan:
+        for s, dw, _w_tgt in plan:
             if dw <= 0:
                 continue
             price = prices_today.get(s, np.nan)
@@ -341,7 +340,7 @@ class Executor:
 
         ledger = AVCOLedger()
         tax = TaxBook(pfu_rate=cfg.pfu_rate, carryforward_years=cfg.loss_carryforward_years)
-        monitor: Optional[RiskMonitor] = RiskMonitor(config=cfg) if cfg.risk_monitor_enabled else None
+        monitor: RiskMonitor | None = RiskMonitor(config=cfg) if cfg.risk_monitor_enabled else None
         rebal_dates = self._rebalance_dates(oos_index)
 
         cash = self.initial_capital
@@ -351,7 +350,7 @@ class Executor:
         total_tc = 0.0
         total_tax = 0.0
         prev_year = oos_index[0].year
-        pending_action: Optional[str] = None
+        pending_action: str | None = None
         last_targets: pd.Series = pd.Series(dtype=float)
 
         for t in oos_index:

@@ -17,9 +17,8 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 
@@ -51,6 +50,22 @@ def get_universe_tickers(pool: str) -> list[str]:
 def _cache_path(cache_dir: Path, pool: str, start: str, end: str, feature_version: str) -> Path:
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir / f"prices_{pool}_{start}_{end}_{feature_version}.parquet"
+
+
+def _resolve_end(config: PipelineConfig) -> str:
+    """Resolved end of the window: the configured end, else *today*.
+
+    Blank/None always rolls forward to today's date, so the dashboard shows the
+    latest session no matter when the user connects.
+    """
+    return config.end_date or date.today().isoformat()
+
+
+def _fetch_end(end: str) -> str:
+    """yfinance ``end`` is *exclusive*; add a day so the latest available bar
+    (including today's, once the session opens) is returned regardless of the
+    hour of day. The cache filename still keys on the inclusive ``end``."""
+    return (date.fromisoformat(end) + timedelta(days=1)).isoformat()
 
 
 # -----------------------------------------------------------------------------
@@ -122,7 +137,7 @@ def load_prices(
     """
     pool = config.pool
     start = config.start_date
-    end = config.end_date or date.today().isoformat()
+    end = _resolve_end(config)
     cache_path = _cache_path(config.cache_dir, pool, start, end, config.feature_version)
 
     if cache_path.exists() and not force_refresh:
@@ -135,7 +150,7 @@ def load_prices(
     logger.info(
         "Fetching %d tickers for pool=%s window=[%s, %s]", len(tickers), pool, start, end
     )
-    df_raw = _fetch_all_parallel(tickers, start, end, max_workers=max_workers)
+    df_raw = _fetch_all_parallel(tickers, start, _fetch_end(end), max_workers=max_workers)
 
     # Reorder columns to match the pool list, dropping any that failed.
     df_raw = df_raw.reindex(columns=[t for t in tickers if t in df_raw.columns])
@@ -156,14 +171,14 @@ def load_benchmarks(config: PipelineConfig, *, force_refresh: bool = False) -> p
         return pd.DataFrame()
 
     start = config.start_date
-    end = config.end_date or date.today().isoformat()
+    end = _resolve_end(config)
     cache_path = _cache_path(
         config.cache_dir, f"{config.pool}_bench", start, end, config.feature_version
     )
     if cache_path.exists() and not force_refresh:
         return pd.read_parquet(cache_path)
 
-    df = _fetch_all_parallel(tickers, start, end, max_workers=len(tickers))
+    df = _fetch_all_parallel(tickers, start, _fetch_end(end), max_workers=len(tickers))
     df.to_parquet(cache_path)
     return df
 
@@ -174,14 +189,14 @@ def load_risk_free(config: PipelineConfig, *, force_refresh: bool = False) -> pd
     if not ticker:
         raise ValueError(f"No risk_free_asset resolved for pool={config.pool!r}.")
     start = config.start_date
-    end = config.end_date or date.today().isoformat()
+    end = _resolve_end(config)
     cache_path = _cache_path(
         config.cache_dir, f"{config.pool}_rf", start, end, config.feature_version
     )
     if cache_path.exists() and not force_refresh:
         return pd.read_parquet(cache_path)[ticker]
 
-    df = _fetch_all_parallel([ticker], start, end, max_workers=1)
+    df = _fetch_all_parallel([ticker], start, _fetch_end(end), max_workers=1)
     df.to_parquet(cache_path)
     return df[ticker]
 

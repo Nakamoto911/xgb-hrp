@@ -8,10 +8,10 @@ the paper they reproduce; deviations are flagged in the field description.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
+import pandas as pd
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # -----------------------------------------------------------------------------
 # Per-pool defaults (Section 3.1 / 3.2 / 3.3 of SPEC.md)
@@ -46,15 +46,15 @@ class PipelineConfig(BaseModel):
 
     # ---- Pool ---------------------------------------------------------------
     pool: Literal["etf", "mutual_fund", "european"] = "etf"
-    risk_free_asset: Optional[str] = Field(
+    risk_free_asset: str | None = Field(
         default=None,
         description="Resolved from POOL_DEFAULTS if omitted.",
     )
-    benchmark_bh: Optional[str] = Field(
+    benchmark_bh: str | None = Field(
         default=None,
         description="Buy-and-hold benchmark ticker. Resolved from POOL_DEFAULTS if omitted.",
     )
-    benchmark_6040: Optional[str] = Field(
+    benchmark_6040: str | None = Field(
         default=None,
         description="60/40 lifestyle benchmark ticker. Resolved from POOL_DEFAULTS if omitted.",
     )
@@ -110,7 +110,7 @@ class PipelineConfig(BaseModel):
 
     # ---- Backtest window ---------------------------------------------------
     start_date: str = "2007-01-01"
-    end_date: Optional[str] = None  # None → today at run time
+    end_date: str | None = None  # None → today at run time
 
     # ---- Infrastructure (not in spec §14, needed by §4/§13.2) --------------
     feature_version: str = Field(
@@ -124,6 +124,27 @@ class PipelineConfig(BaseModel):
     # ------------------------------------------------------------------------
     # Validators
     # ------------------------------------------------------------------------
+    @field_validator("start_date", "end_date", mode="before")
+    @classmethod
+    def _normalize_dates(cls, v: Any) -> str | None:
+        """Normalize any parseable date to zero-padded ISO (YYYY-MM-DD).
+
+        Keeps cache keys stable (``2026-06-9`` and ``2026-06-09`` must not
+        produce two different parquet files) and lets the data layer compute an
+        exclusive end with ``date.fromisoformat``. Blank end_date → None (the
+        loaders resolve None to *today* at run time, so the window always rolls
+        forward to the latest session).
+        """
+        if v is None:
+            return None
+        s = str(v).strip()
+        if not s:
+            return None
+        try:
+            return pd.Timestamp(s).date().isoformat()
+        except Exception as exc:  # noqa: BLE001 — surface a clear config error
+            raise ValueError(f"Unparseable date {v!r}: {exc}") from exc
+
     @model_validator(mode="before")
     @classmethod
     def _resolve_pool_defaults(cls, data: Any) -> Any:
@@ -138,7 +159,7 @@ class PipelineConfig(BaseModel):
         return data
 
     @model_validator(mode="after")
-    def _check_hysteresis(self) -> "PipelineConfig":
+    def _check_hysteresis(self) -> PipelineConfig:
         if self.universe_pct_clear_threshold >= self.universe_pct_threshold:
             raise ValueError(
                 f"Hysteresis broken: universe_pct_clear_threshold "
@@ -152,11 +173,11 @@ class PipelineConfig(BaseModel):
     # Loaders
     # ------------------------------------------------------------------------
     @classmethod
-    def from_dict(cls, d: dict) -> "PipelineConfig":
+    def from_dict(cls, d: dict) -> PipelineConfig:
         return cls.model_validate(d)
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "PipelineConfig":
+    def from_yaml(cls, path: str | Path) -> PipelineConfig:
         import yaml  # local import: yaml is optional at runtime
 
         with open(path) as f:

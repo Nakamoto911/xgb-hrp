@@ -12,10 +12,10 @@ Heavy work runs in joblib loky subprocesses; the vendor's per-process
 """
 from __future__ import annotations
 
+import contextlib
 import logging
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 from joblib import Parallel, delayed
@@ -60,6 +60,23 @@ def _cache_path_one_asset(
     return cache_dir / f"wf_{pool}_{safe}_{start}_{end}_{feature_version}.parquet"
 
 
+def _clear_vendor_price_cache(vendor_cache_dir: Path, ticker: str) -> None:
+    """Delete the vendor's per-ticker ``data_cache_v2_{ticker}_*.pkl`` files.
+
+    The vendor's ``fetch_and_prepare_data`` keys its price cache by *year-month*
+    and only refetches when the cached data is >7 days stale (see
+    ``vendor/xgboost/main.py``). That tolerance leaves the regime chart up to a
+    week behind the latest session even though our own caches were rebuilt. When
+    we are (re)computing a live window we drop the vendor cache so it pulls fresh
+    data through the most recent available bar. FRED self-heals via its own
+    4-hour staleness check, so it is left untouched.
+    """
+    safe = ticker.replace("^", "").replace("=", "")
+    for p in vendor_cache_dir.glob(f"data_cache_v2_{safe}_*.pkl"):
+        with contextlib.suppress(OSError):  # already gone / racing sibling worker — fine
+            p.unlink()
+
+
 def _spec_symbol(spec: tuple, universe: str) -> str:
     """Return the yfinance-style symbol from an xgboost asset spec."""
     # YAHOO_ASSETS / MUTUAL_FUNDS_ASSETS / EUROPEAN_ASSETS layout:
@@ -79,10 +96,14 @@ def _run_one_asset(
     transaction_cost: float,
     cache_path: Path,
     force_refresh: bool,
-) -> tuple[str, str, Optional[pd.DataFrame]]:
+    refresh_vendor: bool = False,
+) -> tuple[str, str, pd.DataFrame | None]:
     """Walk-forward for one asset. Returns (asset_name, symbol, df_or_none).
 
-    Reads from ``cache_path`` if it exists and ``force_refresh=False``.
+    Reads from ``cache_path`` if it exists and ``force_refresh=False``. When a
+    (re)computation does happen and ``refresh_vendor`` is set (live window or
+    forced refresh), the vendor's stale per-ticker price cache is dropped first
+    so fresh data through the latest session is fetched.
     """
     asset_name = spec[0]
     symbol = _spec_symbol(spec, universe)
@@ -99,6 +120,11 @@ def _run_one_asset(
     main = _v.vendor_xgboost_main()
     xgb_config = _v.vendor_xgboost_config()
     portfolio._limit_inner_threads()
+
+    # Recomputing a live window: force the vendor to pull fresh prices instead of
+    # serving its ≤7-day-stale cache.
+    if refresh_vendor:
+        _clear_vendor_price_cache(Path(main.__file__).resolve().parent / "cache", symbol)
 
     if universe in ("yahoo", "yahoo_mutual"):
         _, ticker, hl_proxy, include_dd = spec
@@ -176,6 +202,18 @@ def compute_signals(
         specs = portfolio._asset_specs_for(universe)
         start_date = portfolio._start_date_for(universe)
     end_str = config.end_date or date.today().isoformat()
+    # A live window (ends today) auto-rolls to the latest session. We fetch
+    # through end+1 (yfinance ``end`` is exclusive) so the most recent available
+    # bar is captured regardless of the hour of day, and we refresh the vendor's
+    # stale price cache on every live recompute. Historical windows keep their
+    # original exclusive-end semantics so existing caches stay valid.
+    is_live = end_str == date.today().isoformat()
+    vendor_end = (
+        (date.fromisoformat(end_str) + timedelta(days=1)).isoformat()
+        if is_live
+        else end_str
+    )
+    refresh_vendor = force_refresh or is_live
 
     from pipeline.data import get_universe_tickers
     pool_tickers = set(get_universe_tickers(config.pool))
@@ -213,11 +251,12 @@ def compute_signals(
             universe,
             start_date,
             config.start_date,
-            end_str,
+            vendor_end,
             tuple(config.jm_lambda_grid),
             config.transaction_cost_bps / 1e4,
             cache_paths[spec[0]],
             force_refresh,
+            refresh_vendor,
         )
         for spec in specs_to_run
     )

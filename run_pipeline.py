@@ -27,8 +27,10 @@ from pipeline.data import load_prices, load_risk_free
 from pipeline.eval import (
     EvalContext,
     any_critical_failed,
-    run_all as run_all_evals,
     write_eval_report,
+)
+from pipeline.eval import (
+    run_all as run_all_evals,
 )
 from pipeline.executor import Executor
 from pipeline.forecast import build_forecasts

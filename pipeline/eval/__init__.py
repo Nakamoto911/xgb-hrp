@@ -22,7 +22,6 @@ from pipeline.eval.e2e_eval import CHECKS as _E2E
 from pipeline.eval.executor_eval import CHECKS as _EXEC
 from pipeline.eval.risk_eval import CHECKS as _RISK
 
-
 REGISTRY: list[EvalCheck] = [*_DATA, *_ALLOC, *_EXEC, *_RISK, *_E2E]
 
 

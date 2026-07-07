@@ -8,12 +8,11 @@ import pytest
 from pipeline.config import PipelineConfig
 from pipeline.executor import BacktestResult
 from pipeline.performance import (
-    SUB_PERIODS,
+    PerformanceReport,
     build_buy_and_hold_nav,
     compute_metrics,
     compute_turnover_annual,
     sub_period_metrics,
-    PerformanceReport,
 )
 
 
@@ -70,7 +69,7 @@ def test_build_buy_and_hold_nav_rebases_to_initial_capital():
 def test_report_renders_markdown_without_errors():
     cfg = PipelineConfig()
     nav = _linear_nav(100_000, 110_000, 252)
-    res = BacktestResult(
+    BacktestResult(
         nav=nav,
         weights=pd.DataFrame({"IVV": np.full(252, 0.5), "AGG": np.full(252, 0.5)}, index=nav.index),
         trades=pd.DataFrame(),
