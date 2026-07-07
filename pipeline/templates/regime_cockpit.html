@@ -139,6 +139,18 @@
   .ledsort .sl{font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
   .lwrap .rc{cursor:pointer}
   #chart .regband.dimband{opacity:.16 !important;transition:opacity .1s}
+  /* detector shootout comparison table */
+  .cmp{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 20px;margin-top:18px}
+  .cmp-head{display:flex;justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .cmp-head .t{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .cmp-sub{font-size:10.5px;color:var(--faint)}
+  .cmp-scroll{overflow-x:auto;margin-top:12px}
+  .cmp table{width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:10.5px}
+  .cmp th,.cmp td{padding:7px 12px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+  .cmp th:first-child,.cmp td:first-child{text-align:left;font-family:Inter,system-ui,sans-serif;font-size:11px;color:var(--muted);padding-left:2px;cursor:help}
+  .cmp thead th{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:400}
+  .cmp th.prod,.cmp td.prod{background:rgba(46,204,143,.05)}
+  .cmp th.prod{color:var(--bull);font-weight:700}
 </style>
 <div class="wrap">
   <header>
@@ -149,7 +161,7 @@
     </div>
     <div class="controls">
       <div class="ctl"><label>Asset</label><select id="asset"></select></div>
-      <div class="ctl"><label>Reference</label><div class="seg" id="ref"><button data-v="none" aria-pressed="true">None</button><button data-v="jm">JM label</button></div></div>
+      <div class="ctl"><label>Reference</label><div class="seg" id="ref"><button data-v="none" aria-pressed="true">None</button><button data-v="jm">JM label</button><button data-v="ma200">MA200</button><button data-v="dualma">50/200</button><button data-v="tsmom">TSMOM</button><button data-v="macd">MACD</button></div></div>
       <div class="ctl"><label>Timeline</label><div class="seg" id="ovtoggle"><button data-v="off" aria-pressed="true">Production</button><button data-v="on">+ What-if</button></div></div>
     </div>
   </header>
@@ -221,6 +233,8 @@
     </div>
   </div>
 
+  <div class="cmp"><div class="cmp-head"><span class="t">Detector shootout · production vs reference baselines</span><span class="cmp-sub">net rows: long/flat (asset ↔ cash at RF) · costs + PFU tax per flip · frictionless rows below · baselines: warmup defaults to long</span></div><div class="cmp-scroll" id="cmptable"></div></div>
+
   <div class="footnote" id="foot"></div>
 </div>
 <div class="tooltip" id="tip"></div>
@@ -275,7 +289,8 @@ function getAsset(key){
  const dret=new Float64Array(n);for(let i=1;i<n;i++)dret[i]=Math.log(price[i]/price[i-1]);
  const canon=episodes(price,0.05);
  return {n,sym:p.sym,name:p.name,dates:p.dates,price,Psm,Praw,dret,canon,
-         ret:p.ret,dsd:p.dsd,regimes:p.regimes,jm:p.jm};
+         ret:p.ret,dsd:p.dsd,regimes:p.regimes,jm:p.jm,baselines:p.baselines||{},
+         rf:Float64Array.from(p.rf||new Array(p.price.length).fill(0))};
 }
 
 // expand [{start,end,state}] → {a,b,st} segments + per-seg character stats (uses A.retW/dsdW/dret/price)
@@ -318,6 +333,30 @@ function analyse(A,lab,Dmin){
      rd,rMiss,rlag:(cMiss||rMiss)?null:rd-e.troughIdx,rcost:(cMiss||rMiss)?null:(A.price[rd]/A.price[e.troughIdx]-1)});
  });
  return cycles;
+}
+
+// net long/flat NAV: asset when bull, cash (RF) when bear; tc per flip, PFU tax on realized gains at exit
+function longFlat(A,lab){
+ const n=A.n,tc=(PRODUCTION.tc_bps||0)/1e4,pfu=PRODUCTION.pfu_rate||0;
+ const nav=new Float64Array(n);nav[0]=1;let basis=lab[0]===0?1:NaN;const r=new Float64Array(n);
+ for(let i=1;i<n;i++){
+   let v=nav[i-1];
+   if(lab[i]!==lab[i-1]){
+     if(lab[i]===1){ // exit asset: realize gains → PFU tax, then pay the trade
+       if(basis===basis&&v>basis)v-=(v-basis)*pfu;
+       v*=(1-tc);basis=NaN;
+     }else{v*=(1-tc);basis=v;} // enter asset: pay the trade, reset basis
+   }
+   const ret=lab[i]===1?A.rf[i]:(A.price[i]/A.price[i-1]-1);
+   v*=(1+ret);r[i]=v/nav[i-1]-1;nav[i]=v;
+ }
+ let cagr=Math.pow(nav[n-1],252/(n-1))-1;
+ let m=0;for(let i=1;i<n;i++)m+=r[i];m/=(n-1);
+ let s2=0;for(let i=1;i<n;i++)s2+=(r[i]-m)**2;const vol=Math.sqrt(s2/(n-1))*Math.sqrt(252);
+ let dsum=0,esum=0;for(let i=1;i<n;i++){const e=r[i]-A.rf[i];esum+=e;dsum+=Math.min(e,0)**2;}
+ const dd=Math.sqrt(dsum/(n-1))*Math.sqrt(252);const sortino=dd>0?(esum/(n-1))*252/dd:NaN;
+ let pk=nav[0],mdd=0;for(let i=0;i<n;i++){pk=Math.max(pk,nav[i]);mdd=Math.min(mdd,nav[i]/pk-1);}
+ return {cagr,vol,sortino,mdd};
 }
 
 // ---- shared geometry (used by chart, zoom + crosshair) ----
@@ -501,6 +540,8 @@ function render(){
  // overlays (outlined, never replace production fills)
  const overlays=[];let wf=null,ocycles=null;
  if(state.ref==='jm'){const jm=buildRegime(A,A.jm,agg);overlays.push({segs:jm.segs,color:'var(--amber)',dash:'4 3'});}
+ else if(['ma200','dualma','tsmom','macd'].includes(state.ref)&&A.baselines[state.ref]){
+   const bs=buildRegime(A,A.baselines[state.ref],agg);overlays.push({segs:bs.segs,color:'#8FA1FF',dash:'4 3'});}
  if(state.overlay){const lab=overlayLabel(A,state.w);wf=buildRegime(A,labToSegs(lab),agg);
    overlays.push({segs:wf.segs,color:'var(--violet)',dash:'3 2',fill:'url(#ovhatch)'});
    ocycles=analyse(A,lab,state.Dmin);}
@@ -608,8 +649,70 @@ function render(){
      ${timeliness}</div>`;
  }).join('') || `<div class="rc"><div class="top"><span class="nm">No regimes in filter</span></div></div>`;
 
+ // ---- detector shootout: production vs JM label vs baselines, same audit for all ----
+ const DETS=[['Production',prod.segs],['JM label',A.jm],['MA200',A.baselines.ma200],['50/200',A.baselines.dualma],['TSMOM',A.baselines.tsmom],['MACD',A.baselines.macd],['Buy & hold',[{start:0,end:A.n,state:0}]]];
+ const detRows=[];
+ DETS.forEach(([name,segs])=>{
+   if(!segs)return;
+   const R=(segs[0]&&segs[0].start!==undefined)?buildRegime(A,segs,agg):prod;
+   const cyc=(R===prod)?cycles:analyse(A,R.lab,state.Dmin);
+   const clA=cyc.filter(c=>!c.cMiss).map(c=>c.clag), ccA=cyc.filter(c=>!c.cMiss).map(c=>c.ccost);
+   const rlA=cyc.filter(c=>!c.cMiss&&!c.rMiss).map(c=>c.rlag), rcA=cyc.filter(c=>!c.cMiss&&!c.rMiss).map(c=>c.rcost);
+   const missM=cyc.filter(c=>c.cMiss).length, missN=cyc.length;
+   const bearSg=R.segs.filter(z=>z.st===1), bullSg=R.segs.filter(z=>z.st===0);
+   const bearWin=bearSg.length?100*bearSg.filter(z=>z.pl>0).length/bearSg.length:NaN;
+   const bearComp=bearSg.length?bearSg.reduce((a,z)=>a*(1+z.pl),1)-1:NaN;
+   const bullComp=bullSg.length?bullSg.reduce((a,z)=>a*(1+z.pret),1)-1:NaN;
+   const flips=(R.segs.length-1)/(A.n/252);
+   let bDays=0;for(let i=0;i<A.n;i++)if(R.lab[i]===1)bDays++;
+   const lf=longFlat(A,R.lab);
+   detRows.push({name,exitLag:median(clA),ddExit:median(ccA),reLag:median(rlA),rebMiss:median(rcA),
+     missM,missN,bearWin,bearComp,bullComp,flips,timeBear:100*bDays/A.n,
+     cagr:lf.cagr,vol:lf.vol,sortino:lf.sortino,mdd:lf.mdd});
+ });
+ const CROWS=[
+   {label:'CAGR (net)',tip:'Annualised return of the tradable long/flat strategy: hold the asset in bull, earn the risk-free rate in bear, '+(PRODUCTION.tc_bps||0)+' bps per flip, PFU tax '+((PRODUCTION.pfu_rate||0)*100).toFixed(1)+'% on realised gains at each exit.',key:'cagr',fmt:v=>isNaN(v)?'—':(v>=0?'+':'')+(v*100).toFixed(1)+'%',better:'max',signed:true},
+   {label:'Vol (ann.)',tip:'Annualised volatility of the net long/flat daily returns.',key:'vol',fmt:v=>isNaN(v)?'—':(v*100).toFixed(1)+'%',better:'min'},
+   {label:'Sortino (net)',tip:'Annualised excess return over RF divided by annualised downside deviation, on the net long/flat returns.',key:'sortino',fmt:v=>isNaN(v)?'—':v.toFixed(2),better:'max'},
+   {label:'Max drawdown (net)',tip:'Deepest peak-to-trough fall of the net long/flat NAV.',key:'mdd',fmt:v=>isNaN(v)?'—':(v*100).toFixed(0)+'%',better:'max'},
+   {label:'Exit lag (med)',tip:'Days from crash top to bear call.',key:'exitLag',fmt:v=>isNaN(v)?'—':v+'d',better:'min'},
+   {label:'DD before exit (med)',tip:'Drawdown already taken when the detector went bear.',key:'ddExit',fmt:v=>isNaN(v)?'—':(v*100).toFixed(0)+'%',better:'max'},
+   {label:'Re-entry lag (med)',tip:'Days from trough to bull call.',key:'reLag',fmt:v=>isNaN(v)?'—':v+'d',better:'min'},
+   {label:'Rebound missed (med)',tip:'Recovery forfeited before re-entry.',key:'rebMiss',fmt:v=>isNaN(v)?'—':'+'+(v*100).toFixed(0)+'%',better:'min'},
+   {label:'Crashes missed',tip:'Crashes ≥ Dmin never flagged bear.',val:r=>r.missM,fmt:(v,r)=>r.missM+'/'+r.missN,better:'min'},
+   {label:'Bear win rate',tip:'Fraction of bear calls where price actually fell.',key:'bearWin',fmt:v=>isNaN(v)?'—':v.toFixed(0)+'%',better:'max'},
+   {label:'Bear avoided (comp.)',tip:'Compounded impact of being out; positive = declines avoided.',key:'bearComp',fmt:v=>isNaN(v)?'—':(v>=0?'+':'')+(v*100).toFixed(1)+'%',better:'max',signed:true},
+   {label:'Bull captured (comp.)',tip:'Compounded price return captured while held.',key:'bullComp',fmt:v=>isNaN(v)?'—':(v>=0?'+':'')+(v*100).toFixed(1)+'%',better:'max',signed:true},
+   {label:'Flips / year',tip:'Regime changes per year; whipsaw and trading-cost proxy.',key:'flips',fmt:v=>isNaN(v)?'—':v.toFixed(1),better:'min'},
+   {label:'Time in bear',tip:'Fraction of history out of the asset.',key:'timeBear',fmt:v=>isNaN(v)?'—':v.toFixed(0)+'%',better:null},
+ ];
+ let cmpHTML='';
+ if(detRows.length){
+   cmpHTML+=`<table><thead><tr><th></th>`+
+     detRows.map(r=>`<th class="${r.name==='Production'?'prod':''}">${esc(r.name)}</th>`).join('')+
+     `</tr></thead><tbody>`;
+   CROWS.forEach((row,ridx)=>{
+     if(ridx===4)cmpHTML+=`<tr><td colspan="${detRows.length+1}" style="font-family:'JetBrains Mono',monospace;font-size:8.5px;text-transform:uppercase;color:var(--faint);letter-spacing:.1em;padding:4px 2px;cursor:default">frictionless audit ↓</td></tr>`;
+     const raw=detRows.map(r=>row.val?row.val(r):r[row.key]);
+     const valid=raw.map((v,i)=>({v,i})).filter(o=>o.v!=null&&!isNaN(o.v));
+     let bestVal=null;
+     if(row.better&&valid.length>=2)bestVal=row.better==='min'?Math.min(...valid.map(o=>o.v)):Math.max(...valid.map(o=>o.v));
+     cmpHTML+=`<tr><td${tt(row.label,row.tip)}>${row.label}</td>`;
+     detRows.forEach((r,i)=>{
+       const v=raw[i];const isBest=bestVal!=null&&!isNaN(v)&&v===bestVal;
+       let style='';
+       if(row.signed&&!isNaN(v))style=`color:${v>=0?'var(--bull)':'var(--bear)'};`;
+       if(isBest)style+=`font-weight:700;${row.signed?'':'color:var(--bull);'}`;
+       cmpHTML+=`<td class="${r.name==='Production'?'prod':''}" style="${style}">${row.fmt(v,r)}</td>`;
+     });
+     cmpHTML+=`</tr>`;
+   });
+   cmpHTML+=`</tbody></table>`;
+ }
+ document.getElementById('cmptable').innerHTML=cmpHTML;
+
  document.getElementById('foot').innerHTML=
-   `Audit view · The default red/green shading is the pipeline's <b>committed production regime</b> — the traded selection rule (${PRODUCTION.rule}) on the smoothed p_bear, θ=${PRODUCTION.theta==null?'—':PRODUCTION.theta.toFixed(2)}, from <b>${esc(PRODUCTION.source)}</b>. The dotted verticals are the <b>truth</b>: realised crash tops (▲) and recovery troughs (▼) from the underwater drawdown. The gutter brackets audit the production regime against those truth events — the gap is the <b>lag</b> (days) and the amber figure the drawdown taken in it. The <b>what-if overlay</b> (violet hatched) is hypothetical and never replaces production; the JM-label reference (amber) lets you compare the jump-model labels against the traded regime. Every lag, cost and KPI here measures the PRODUCTION regime; downside is the Sortino denominator (semi-deviation) at the pipeline half-life.`;
+   `Audit view · The default red/green shading is the pipeline's <b>committed production regime</b> — the traded selection rule (${PRODUCTION.rule}) on the smoothed p_bear, θ=${PRODUCTION.theta==null?'—':PRODUCTION.theta.toFixed(2)}, from <b>${esc(PRODUCTION.source)}</b>. The dotted verticals are the <b>truth</b>: realised crash tops (▲) and recovery troughs (▼) from the underwater drawdown. The gutter brackets audit the production regime against those truth events — the gap is the <b>lag</b> (days) and the amber figure the drawdown taken in it. The <b>what-if overlay</b> (violet hatched) is hypothetical and never replaces production; the JM-label reference (amber) lets you compare the jump-model labels against the traded regime. Every lag, cost and KPI here measures the PRODUCTION regime; downside is the Sortino denominator (semi-deviation) at the pipeline half-life. Baselines (MA200, 50/200 cross, TSMOM, vol-normalised MACD) are computed from the same adjusted-close series in Python; warmup days before a baseline has enough history default to <b>long</b>. The shootout table audits every detector with the same crash detector and Dmin as the KPIs. The net CAGR/vol/Sortino/MaxDD rows simulate each detector as a tradable long/flat strategy — asset in bull, cash at the risk-free rate in bear — charging transaction costs per flip and PFU tax on realised gains at each exit; Buy &amp; hold is the do-nothing benchmark column.`;
 }
 
 // ---- asset selector + control wiring ----

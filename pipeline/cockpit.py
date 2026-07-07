@@ -25,6 +25,9 @@ Per ticker the payload carries, all aligned to one ``dates`` axis:
     dsd{5,10,21}[]   — recomputed semi-deviation (Sortino denominator, see note)
     regimes[]        — PRODUCTION traded regime segments {start,end,state} (1=bear)
     jm[]             — JM regime_label segments {start,end,state} (reference)
+    baselines{}      — reference trend baselines (ma200, dualma, tsmom, macd), same
+                       segment shape as regimes; warmup days default to bull (long)
+    rf[]             — daily risk-free rate (for the shootout's net long/flat NAV)
 
 Plus a single shared ``PRODUCTION`` settings object (identical across tickers)
 injected as its own template global for the read-only badge.
@@ -89,6 +92,32 @@ def _segments(label: np.ndarray) -> list[dict]:
     return segs
 
 
+def _baseline_labels(px: pd.Series) -> dict[str, pd.Series]:
+    """Classic trend/regime baselines on a full (unaligned) price series, 1=bear.
+
+    Warmup convention: rolling stats are NaN until they have enough history;
+    the bear comparisons below evaluate to False on NaN, so warmup days default
+    to 0 (bull/held) — "long until the signal has enough history".
+    """
+    ma200 = px.rolling(200).mean()
+    ma50 = px.rolling(50).mean()
+
+    horizons = [(8, 24), (16, 48), (32, 96)]
+    vol63 = px.rolling(63).std()
+    zs = []
+    for s, l in horizons:
+        q = (px.ewm(halflife=s).mean() - px.ewm(halflife=l).mean()) / vol63
+        zs.append(q / q.rolling(252).std())
+    combined = sum(zs) / len(zs)
+
+    return {
+        "ma200": (px < ma200).astype(int),
+        "dualma": (ma50 < ma200).astype(int),
+        "tsmom": (px.pct_change(252) < 0).astype(int),
+        "macd": (combined < 0).astype(int),
+    }
+
+
 def _production_settings(config: PipelineConfig, source: str) -> dict:
     """Read-only production regime settings for the on-chart PRODUCTION badge."""
     theta = (
@@ -113,6 +142,8 @@ def _production_settings(config: PipelineConfig, source: str) -> dict:
         },
         "source": source,
         "config": f"{config.pool}@{config.end_date or 'today'} fv={config.feature_version}",
+        "tc_bps": config.transaction_cost_bps,
+        "pfu_rate": config.pfu_rate,
     }
 
 
@@ -181,6 +212,7 @@ def build_cockpit_payload(
                 "p_bear_raw": d["Raw_Prob"].astype(float),
                 "prod_bear": (~sel.loc[idx].astype(bool)).astype(int),  # not-selected = bear
                 "jm_bear": (d["JM_Target_State"].astype(int) == 1).astype(int),
+                "rf": d["RF_Rate"].astype(float),
             },
             index=idx,
         )
@@ -193,6 +225,12 @@ def build_cockpit_payload(
             logger.warning("Cockpit: %s too short after dropna (%d) — skipping", symbol, len(frame))
             continue
 
+        base = _baseline_labels(px.dropna())
+        baselines = {
+            k: _segments(base[k].reindex(frame.index).fillna(0).astype(int).to_numpy())
+            for k in ("ma200", "dualma", "tsmom", "macd")
+        }
+
         assets[symbol] = {
             "name": df.attrs.get("asset_name", symbol),
             "sym": symbol,
@@ -204,6 +242,8 @@ def build_cockpit_payload(
             "dsd": {str(w): _round(frame[f"dsd{w}"], 6) for w in WINDOWS},
             "regimes": _segments(frame["prod_bear"].to_numpy()),  # PRODUCTION traded
             "jm": _segments(frame["jm_bear"].to_numpy()),  # JM reference
+            "baselines": baselines,
+            "rf": _round(frame["rf"], 8),
         }
 
     if not assets:
