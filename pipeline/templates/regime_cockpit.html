@@ -76,6 +76,9 @@
   .regfp .cap .lg{display:flex;gap:9px}
   .regfp .cap .lg span{display:inline-flex;align-items:center;gap:4px}
   .regfp .cap .lg i{width:8px;height:8px;border-radius:50%}
+  .ledpl{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+  .ledpl .lp-row{cursor:help}
+  .ledpl b{font-weight:700}
   .frow{margin-bottom:15px}.frow:last-child{margin-bottom:3px}
   .frow .ft{display:flex;justify-content:space-between;font-size:11px;margin-bottom:9px}
   .frow .ft .sep{font-family:'JetBrains Mono',monospace;font-size:9.5px}
@@ -99,7 +102,7 @@
   .rc .lg .b{font-family:'Space Grotesk';font-weight:600;font-size:15px;margin-top:2px}
   .rc .lg .b small{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:400;color:var(--amber);margin-left:4px}
   .rc.exit .lg.e .b{color:var(--bear)} .rc .lg.r .b{color:var(--bull)}
-  .rc .char{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px 8px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
+  .rc .char{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:3px 8px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
   .rc .m{display:flex;flex-direction:column}
   .rc .m .k{font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
   .rc .m .v{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink);margin-top:1px}
@@ -208,11 +211,12 @@
         <div style="display:flex;align-items:center"><span class="sl">stat</span><div class="seg mini" id="stat"><button data-v="median" aria-pressed="true">Med</button><button data-v="mean">Mean</button></div></div>
       </div>
       <div class="ledsort">
-        <span class="sl">sort</span><div class="seg mini" id="ledsort"><button data-v="date" aria-pressed="true">Date</button><button data-v="dd">MaxDD</button><button data-v="lag">Exit lag</button></div>
+        <span class="sl">sort</span><div class="seg mini" id="ledsort"><button data-v="date" aria-pressed="true">Date</button><button data-v="dd">MaxDD</button><button data-v="lag">Exit lag</button><button data-v="pl">P&amp;L</button></div>
         <div class="seg mini" id="ledmat"><button data-v="all" aria-pressed="true">All</button><button data-v="material">Material</button></div>
         <div class="seg mini" id="ledcrash"><button data-v="off" aria-pressed="true">All bears</button><button data-v="on">Crashes</button></div>
       </div>
       <div class="regfp" id="regfp"></div>
+      <div class="ledpl" id="ledpl"></div>
       <div class="lwrap" id="lwrap"></div>
     </div>
   </div>
@@ -280,9 +284,13 @@ function buildRegime(A,rawSegs,agg){
  const lab=new Int8Array(n);for(const s of segs)for(let i=s.a;i<s.b;i++)lab[i]=s.st;
  for(const sg of segs){const R=[],D=[],V=[];let pk=A.price[sg.a],md=0;
    for(let i=sg.a;i<sg.b;i++){R.push(A.retW[i]);D.push(A.dsdW[i]);V.push(A.dret[i]);pk=Math.max(pk,A.price[i]);md=Math.min(md,A.price[i]/pk-1);}
-   sg.ret=agg(R);sg.dsd=agg(D);sg.vol=stdOf(V);sg.maxdd=md;}
+   sg.ret=agg(R);sg.dsd=agg(D);sg.vol=stdOf(V);sg.maxdd=md;
+   sg.pret=A.price[sg.b-1]/A.price[sg.a>0?sg.a-1:sg.a]-1;sg.pl=sg.st===1?-sg.pret:sg.pret;}
  return {lab,segs};
 }
+// win/loss sentence shared by chart hit-layer tooltip + ledger card tooltip
+function plSent(sg){const bull=sg.st===0,p=sg.pl,s=(p>=0?'+':'−')+Math.abs(p*100).toFixed(1)+'%';
+ return bull?`Win/loss: held → <b>${s}</b> ${p>=0?'captured':'lost'}.`:`Win/loss: out → <b>${s}</b> ${p>=0?'decline avoided':'upside missed'}.`;}
 function labToSegs(lab){const n=lab.length;const segs=[];let a=0;for(let i=1;i<n;i++)if(lab[i]!==lab[i-1]){segs.push({start:a,end:i,state:lab[a]});a=i;}segs.push({start:a,end:n,state:lab[a]});return segs;}
 
 // AUDIT OVERLAY (what-if only): client-side hypothetical regime from a chosen signal + θ (+θ_clear hysteresis,
@@ -439,7 +447,7 @@ function chart(A,det,cycles,theta,overlays){
  for(const sg of det.segs){const bull=sg.st===0;const inst=bull?++hbn:++hrn;
    const a=Math.max(sg.a,i0),b=Math.min(sg.b-1,i1);if(b<a)continue;const x0=x(a),w=Math.max(1,x(b)-x0);
    const t=`${bull?'Bull':'Bear'} regime ${inst} · production`;
-   const body=`${fmtDate(dlabel(sg.a))} → ${fmtDate(dlabel(sg.b-1))} · <b>${sg.b-sg.a} days</b>. Median return <b>${(sg.ret*100).toFixed(2)}%/day</b>, downside dev <b>${(sg.dsd*100).toFixed(2)}%</b>, max drawdown <b>${(sg.maxdd*100).toFixed(0)}%</b>. This is the committed production regime (the traded selection). The shade marks the stretch; severity lives in the numbers and the ledger.`;
+   const body=`${fmtDate(dlabel(sg.a))} → ${fmtDate(dlabel(sg.b-1))} · <b>${sg.b-sg.a} days</b>. Median return <b>${(sg.ret*100).toFixed(2)}%/day</b>, downside dev <b>${(sg.dsd*100).toFixed(2)}%</b>, max drawdown <b>${(sg.maxdd*100).toFixed(0)}%</b>. This is the committed production regime (the traded selection). The shade marks the stretch; severity lives in the numbers and the ledger. ${plSent(sg)}`;
    s+=`<rect class="hit" x="${x0}" y="${dwTop}" width="${w}" height="${ph1}" fill="transparent"${tt(t,body)}/>`;
    s+=`<rect class="hit" x="${x0}" y="${sgTop}" width="${w}" height="${dsTop+ph4-sgTop}" fill="transparent"${tt(t,body)}/>`;}
  const plab=[
@@ -511,9 +519,11 @@ function render(){
  const wEl=document.getElementById('whatif');wEl.hidden=!state.overlay;
  if(state.overlay&&wf){const days=A.n;let reclass=0;for(let i=0;i<days;i++)if(prod.lab[i]!==wf.lab[i])reclass++;
    let diffCatch=0;for(let k=0;k<cycles.length;k++){if(cycles[k].cMiss!==ocycles[k].cMiss||cycles[k].clag!==ocycles[k].clag)diffCatch++;}
+   const prodPL=prod.segs.reduce((a,z)=>a*(1+z.pl),1)-1, wfPL=wf.segs.reduce((a,z)=>a*(1+z.pl),1)-1;
    document.getElementById('wdiff').innerHTML=
      `production: <b>${prod.segs.length}</b> regimes · overlay: <b>${wf.segs.length}</b> regimes · <b>${reclass}</b> days reclassified (${(100*reclass/days).toFixed(1)}%) · <b>${diffCatch}/${cycles.length}</b> crashes detected differently. `+
-     `The violet hatched bands are hypothetical — production (the solid fills) is unchanged.`;}
+     `The violet hatched bands are hypothetical — production (the solid fills) is unchanged. `+
+     `P&amp;L impact: production <b>${prodPL>=0?'+':''}${(prodPL*100).toFixed(1)}%</b> vs what-if <b>${wfPL>=0?'+':''}${(wfPL*100).toFixed(1)}%</b> (compounded across all regimes: bull = captured, bear = avoided)`;}
 
  // KPIs — measured against PRODUCTION regimes (overlay adds a parenthetical when on)
  const cl=cycles.filter(c=>!c.cMiss).map(c=>c.clag), cc=cycles.filter(c=>!c.cMiss).map(c=>c.ccost);
@@ -557,13 +567,23 @@ function render(){
    + fpRow('Avg return '+state.retWin+'d', rB, rR, true, 'The everyday return in each regime.')
    + fpRow('Downside deviation '+state.dsdWin+'d', dB, dR, false, 'Volatility of losses. Bear should sit well above bull.');
 
+ // ---- aggregate P&L summary over ALL production segments (unaffected by the ledger filter) ----
+ const bullSegs=prod.segs.filter(z=>z.st===0), bearSegs=prod.segs.filter(z=>z.st===1);
+ const bullComp=bullSegs.reduce((a,z)=>a*(1+z.pret),1)-1, bearComp=bearSegs.reduce((a,z)=>a*(1+z.pl),1)-1;
+ const bullWinR=bullSegs.length?100*bullSegs.filter(z=>z.pret>0).length/bullSegs.length:NaN;
+ const bearWinR=bearSegs.length?100*bearSegs.filter(z=>z.pl>0).length/bearSegs.length:NaN;
+ document.getElementById('ledpl').innerHTML=
+   `<div class="lp-row"${tt('Bull P&L summary','Compounded close-to-close price moves across all production bull regimes of this asset (not affected by the Bull/Bear filter above).')}>Bull · ${bullSegs.length} held · compounded <b style="color:${bullComp>=0?'var(--bull)':'var(--bear)'}">${bullComp>=0?'+':''}${(bullComp*100).toFixed(1)}%</b> · win rate ${isNaN(bullWinR)?'—':bullWinR.toFixed(0)+'%'}</div>`+
+   `<div class="lp-row"${tt('Bear P&L summary','Compounded close-to-close price moves across all production bear regimes of this asset; bear shows the compounded impact of being OUT — positive means declines avoided (not affected by the Bull/Bear filter above).')}>Bear · ${bearSegs.length} out · avoided <b style="color:${bearComp>=0?'var(--bull)':'var(--bear)'}">${bearComp>=0?'+':''}${(bearComp*100).toFixed(1)}%</b> · win rate ${isNaN(bearWinR)?'—':bearWinR.toFixed(0)+'%'}</div>`;
+
  // ---- per-regime cards over PRODUCTION segments: filter + sort ----
  let nb=0,nr=0;prod.segs.forEach(sg=>{sg.inst=sg.st===0?++nb:++nr;});
  let shown=prod.segs.filter(sg=>state.rfilter==='both'||(state.rfilter==='bull'&&sg.st===0)||(state.rfilter==='bear'&&sg.st===1));
  if(state.ledmat==='material')shown=shown.filter(isMaterial);
  if(state.ledcrash==='on')shown=shown.filter(sg=>sg.st===1&&matchCyc(cycles,sg));
  const sorter={date:(a,b)=>b.a-a.a, dd:(a,b)=>Math.abs(b.maxdd)-Math.abs(a.maxdd),
-   lag:(a,b)=>{const la=(matchCyc(cycles,a)||{}).clag,lb=(matchCyc(cycles,b)||{}).clag;return (lb==null?-1:lb)-(la==null?-1:la);}}[state.ledsort];
+   lag:(a,b)=>{const la=(matchCyc(cycles,a)||{}).clag,lb=(matchCyc(cycles,b)||{}).clag;return (lb==null?-1:lb)-(la==null?-1:la);},
+   pl:(a,b)=>Math.abs(b.pl)-Math.abs(a.pl)}[state.ledsort];
  document.getElementById('lwrap').innerHTML=[...shown].sort(sorter).map(sg=>{
    const bull=sg.st===0;const dur=sg.b-sg.a;
    const dates=`${fmtDate(dlabel(sg.a))} → ${fmtDate(dlabel(sg.b-1))}`;
@@ -575,7 +595,7 @@ function render(){
          <div class="lg"${tt('Exit lag · cost','This production bear was flagged '+c.clag+' trading days after the market top, by which point '+(c.ccost*100).toFixed(0)+'% of drawdown was already taken.')}><div class="h">exit lag · cost</div><div class="b" style="font-size:13px;color:var(--bear)">${exit}</div></div>
          <div class="lg"${tt('Re-entry · missed',c.rMiss?'The production regime never went bull inside the window — no clean re-entry.':'Re-entry came '+c.rlag+' days after the trough, with +'+(c.rcost*100).toFixed(0)+'% of the rebound already missed.')}><div class="h">re-entry · missed</div><div class="b" style="font-size:13px;color:var(--bull)">${re}</div></div></div>`;}}
    const cardTip=tt(`${bull?'Bull':'Bear'} regime ${sg.inst} · production`,
-     `${dates} · <b>${dur} days</b>. Committed production regime. Median return <b>${(sg.ret*100).toFixed(2)}%/day</b>, downside deviation <b>${(sg.dsd*100).toFixed(2)}%</b>, worst within-regime drawdown <b>${(sg.maxdd*100).toFixed(0)}%</b>.${bull?'':' The exit/re-entry figures show how timely and costly the production detection was.'} Click to zoom the chart to this regime.`);
+     `${dates} · <b>${dur} days</b>. Committed production regime. Median return <b>${(sg.ret*100).toFixed(2)}%/day</b>, downside deviation <b>${(sg.dsd*100).toFixed(2)}%</b>, worst within-regime drawdown <b>${(sg.maxdd*100).toFixed(0)}%</b>.${bull?'':' The exit/re-entry figures show how timely and costly the production detection was.'} ${plSent(sg)} Click to zoom the chart to this regime.`);
    return `<div class="rc ${bull?'bull':'bear'}" data-a="${sg.a}" data-b="${sg.b}"${cardTip}><div class="top">
      <span class="nm"><span class="d" style="background:${bull?'var(--bull)':'var(--bear)'}"></span>${bull?'Bull':'Bear'} ${sg.inst}</span>
      <span class="len">${dur}d</span></div>
@@ -583,7 +603,8 @@ function render(){
      <div class="char">
        <div class="m"${tt('Median return',(state.stat==='mean'?'Mean':'Median')+' daily avg-return ('+state.retWin+'d) inside this regime.')}><span class="k">med return</span><span class="v">${(sg.ret*100).toFixed(2)}%</span></div>
        <div class="m"${tt('Downside deviation','Typical size of the down-moves inside this regime.')}><span class="k">downside</span><span class="v">${(sg.dsd*100).toFixed(2)}%</span></div>
-       <div class="m"${tt('Max drawdown','Deepest peak-to-trough fall within this regime alone.')}><span class="k">maxDD</span><span class="v">${(sg.maxdd*100).toFixed(0)}%</span></div></div>
+       <div class="m"${tt('Max drawdown','Deepest peak-to-trough fall within this regime alone.')}><span class="k">maxDD</span><span class="v">${(sg.maxdd*100).toFixed(0)}%</span></div>
+       <div class="m"${tt(`Win / loss · ${bull?'held':'out'}`,bull?'Price return captured while the strategy held this asset through this regime (close-to-close). Positive = win, negative = loss.':'Impact of being out of this asset during this regime (close-to-close). Positive = decline avoided by being out; negative = upside missed while out.')}><span class="k">win/loss</span><span class="v" style="color:${sg.pl>=0?'var(--bull)':'var(--bear)'}">${sg.pl>=0?'+':''}${(sg.pl*100).toFixed(1)}%</span></div></div>
      ${timeliness}</div>`;
  }).join('') || `<div class="rc"><div class="top"><span class="nm">No regimes in filter</span></div></div>`;
 
