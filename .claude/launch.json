@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard",
+      "runtimeExecutable": ".venv/bin/streamlit",
+      "runtimeArgs": ["run", "app.py", "--server.headless", "true", "--server.port", "8501", "--browser.gatherUsageStats", "false"],
+      "port": 8501
+    },
+    {
+      "name": "cockpit-static",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8765", "--directory", "/private/tmp/claude-501/-Volumes-PRO-G40-Code-xgb-hrp/a21c6669-7ba1-459c-9507-0b43c1f57558/scratchpad"],
+      "port": 8765
+    }
+  ]
+}
