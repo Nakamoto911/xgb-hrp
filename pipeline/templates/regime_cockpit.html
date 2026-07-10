@@ -173,6 +173,7 @@
       <div class="scope-head">
         <span class="t">Drawdown · signal · return · downside</span>
         <span class="legend">
+          <span id="lanelegend" style="display:contents"></span>
           <span><i style="background:var(--bear)"></i>bear</span>
           <span><i style="background:var(--bull)"></i>bull</span>
           <span><span class="ln" style="border-color:var(--signal)"></span>P(bear)/return</span>
@@ -360,24 +361,42 @@ function longFlat(A,lab){
 }
 
 // ---- shared geometry (used by chart, zoom + crosshair) ----
-const LAYOUT=(()=>{
+// Recomputed per draw: the trade-lane block grows with the number of active lanes
+// (production + reference + what-if), so H is dynamic.
+function makeLayout(nLanes){
  const W=880,padL=48,padR=14,padT=8,hb=28,gh=52,g=8,padB=24;
  const ph1=116,ph2=90,ph3=82,ph4=78;
+ const laneH=16, lnH=nLanes>0?nLanes*laneH+8:0;
  const dwBand=padT, dwTop=dwBand+hb;
  const gutTop=dwTop+ph1, gutBot=gutTop+gh;
- const sgBand=gutBot, sgTop=sgBand+hb;
+ const lnTop=gutBot;
+ const sgBand=lnTop+lnH, sgTop=sgBand+hb;
  const rtBand=sgTop+ph2+g, rtTop=rtBand+hb;
  const dsBand=rtTop+ph3+g, dsTop=dsBand+hb;
  const H=dsTop+ph4+padB, iw=W-padL-padR;
- return {W,padL,padR,padT,hb,gh,g,padB,ph1,ph2,ph3,ph4,dwBand,dwTop,gutTop,gutBot,sgBand,sgTop,rtBand,rtTop,dsBand,dsTop,H,iw};
-})();
+ return {W,padL,padR,padT,hb,gh,g,padB,ph1,ph2,ph3,ph4,laneH,lnH,dwBand,dwTop,gutTop,gutBot,lnTop,sgBand,sgTop,rtBand,rtTop,dsBand,dsTop,H,iw};
+}
+let LAYOUT=makeLayout(1);
+// keep the crosshair viewBox + floating panel controls in step with the dynamic H
+function syncChrome(){
+ const {W,H,hb,dwBand,rtBand,dsBand}=LAYOUT;
+ const crossEl=document.getElementById('cross');
+ const vb=`0 0 ${W} ${H}`;
+ if(crossEl&&crossEl.getAttribute('viewBox')!==vb){
+  crossEl.setAttribute('viewBox',vb);
+  [['dmin',dwBand],['retwin',rtBand],['dsdwin',dsBand]].forEach(([id,band])=>{
+   const el=document.getElementById(id);
+   if(el&&el.parentElement)el.parentElement.style.top=(((band+hb-3)/H)*100).toFixed(2)+'%';});}
+}
 let view={i0:0,i1:0};                // visible index window (focus+context zoom)
 let CUR=null;                        // live geometry for crosshair readout
 let SCENE=null;                      // current {A,det,cycles,theta,overlays} for cheap re-draws on zoom/pan
 const THR=1500;                      // LTTB target points per polyline (recomputed per draw)
 
 function chart(A,det,cycles,theta,overlays){
- const {W,padL,padR,hb,ph1,ph2,ph3,ph4,dwBand,dwTop,gutTop,sgBand,sgTop,rtBand,rtTop,dsBand,dsTop,H,iw}=LAYOUT;
+ LAYOUT=makeLayout(1+((overlays&&overlays.length)||0));
+ const {W,padL,padR,hb,ph1,ph2,ph3,ph4,laneH,dwBand,dwTop,gutTop,lnTop,sgBand,sgTop,rtBand,rtTop,dsBand,dsTop,H,iw}=LAYOUT;
+ syncChrome();
  const i0=view.i0, i1=view.i1, span=(i1-i0)||1;
  const x=i=>padL+(i-i0)/span*iw;
  const inV=i=>i>=i0&&i<=i1;
@@ -410,10 +429,16 @@ function chart(A,det,cycles,theta,overlays){
    s+=`<rect class="${cls}" x="${x0}" y="${rtTop}" width="${w}" height="${ph3}" fill="rgba(${col},${opFeat})"/>`;
    s+=`<rect class="${cls}" x="${x0}" y="${dsTop}" width="${w}" height="${ph4}" fill="rgba(${col},${opFeat})"/>`;}
 
- // reference / audit OVERLAYS — outlined bands drawn ALONGSIDE production, never replacing the fills
+ // reference / audit OVERLAYS — drawn ALONGSIDE production, never replacing the fills.
+ // References tint the drawdown panel only (their trades live in the lanes below);
+ // the what-if keeps its hatched outline across the analysis panels.
  for(const ov of (overlays||[])){for(const sg of ov.segs){if(sg.st!==1)continue;
    const a=Math.max(sg.a,i0),b=Math.min(sg.b-1,i1);if(b<a)continue;const x0=x(a),w=Math.max(1,x(b)-x0);
-   s+=`<rect x="${x0}" y="${dwTop}" width="${w}" height="${dsTop+ph4-dwTop}" fill="${ov.fill||'none'}" stroke="${ov.color}" stroke-width="1.1" stroke-dasharray="${ov.dash}" opacity=".9"/>`;}}
+   if(ov.fill){
+     s+=`<rect x="${x0}" y="${dwTop}" width="${w}" height="${ph1}" fill="${ov.fill}" stroke="${ov.color}" stroke-width="1.1" stroke-dasharray="${ov.dash}" opacity=".9"/>`;
+     s+=`<rect x="${x0}" y="${sgTop}" width="${w}" height="${dsTop+ph4-sgTop}" fill="${ov.fill}" stroke="${ov.color}" stroke-width="1.1" stroke-dasharray="${ov.dash}" opacity=".9"/>`;
+   }else if(ov.tint){
+     s+=`<rect x="${x0}" y="${dwTop}" width="${w}" height="${ph1}" fill="${ov.tint}"/>`;}}}
 
  // faint year gridlines (each January boundary in view)
  let py=dlabel(i0).getFullYear();
@@ -477,6 +502,34 @@ function chart(A,det,cycles,theta,overlays){
      s+=`<text x="${L.mx}" y="${y}" font-size="9" text-anchor="middle" fill="${col}" font-weight="700">${L.txt}</text>`;}};
  drawLabels(exLabels,exLbY,'var(--bear)');drawLabels(reLabels,reLbY,'var(--bull)');
 
+ // ---- TRADE LANES: each bear span = one exit trade, coloured by outcome ----
+ // Production always; reference / what-if lanes align directly beneath it so
+ // timing differences and per-trade win/loss are read at a glance.
+ const lanes=[{name:'PROD',color:'var(--muted)',segs:det.segs,prod:true}];
+ for(const ov of (overlays||[]))lanes.push({name:ov.name||'REF',color:ov.color,segs:ov.segs});
+ lanes.forEach((L,k)=>{
+  const lyc=lnTop+4+k*laneH+laneH/2;
+  s+=`<line x1="${padL}" x2="${W-padR}" y1="${lyc}" y2="${lyc}" stroke="var(--line)"/>`;
+  s+=`<text x="${padL-6}" y="${lyc+2.5}" font-size="7" text-anchor="end" fill="${L.color}" letter-spacing=".4">${esc(L.name)}</text>`;
+  s+=`<rect class="hit" x="2" y="${lyc-7}" width="${padL-4}" height="${laneH-2}" fill="transparent"${tt(esc(L.name)+' · exit trades',
+    (L.prod?'Each block is a <b>production</b> bear span — a period out of the asset.':'Each block is a <b>'+esc(L.name)+'</b> bear span (out of the asset), aligned under the production lane for direct comparison.')+
+    ' <b style="color:var(--bull)">Green</b> = price fell while out → decline avoided (win). <b style="color:var(--bear)">Red</b> = price rose → upside missed (loss). Width = trade duration; close-to-close, frictionless.')}/>`;
+  for(const sg of L.segs){if(sg.st!==1)continue;
+   const a=Math.max(sg.a,i0),b=Math.min(sg.b-1,i1);if(b<a)continue;
+   const x0=x(a),x1v=x(b),w=Math.max(2,x1v-x0);const win=sg.pl>=0;
+   const col=win?'46,204,143':'255,84,112',lnc=win?'var(--bull)':'var(--bear)';
+   s+=`<rect x="${x0}" y="${lyc-5}" width="${w}" height="10" rx="2" fill="rgba(${col},.30)" stroke="${lnc}" stroke-width=".8"/>`;
+   const txt=`${win?'+':'−'}${Math.abs(sg.pl*100).toFixed(0)}%`;
+   if(w>=txt.length*5.2+8)s+=`<text x="${(x0+x1v)/2}" y="${lyc+2.8}" font-size="8" text-anchor="middle" fill="${lnc}" font-weight="700">${txt}</text>`;
+   const dur=sg.b-sg.a,pv=`${win?'+':'−'}${Math.abs(sg.pl*100).toFixed(1)}%`;
+   let agree='';
+   if(!L.prod){let dc=0;for(let i=sg.a;i<sg.b;i++)if(det.lab[i]===1)dc++;
+     agree=` Production was also out (bear) on <b>${dc}/${dur}</b> of these days.`;}
+   s+=`<rect class="hit" x="${x0}" y="${lyc-7}" width="${w}" height="${laneH-2}" fill="transparent"${tt(
+     `${esc(L.name)} exit trade · ${win?'win':'loss'} ${pv}`,
+     `${fmtDate(dlabel(sg.a))} → ${fmtDate(dlabel(sg.b-1))} · <b>${dur} days</b> out of the asset. Price moved <b>${(sg.pret*100).toFixed(1)}%</b> while out → <b>${pv} ${win?'decline avoided':'upside missed'}</b> (close-to-close, frictionless).${agree}`)}/>`;
+  }});
+
  // x dates across the visible window
  for(let q=0;q<=8;q++){const i=Math.round(i0+q/8*span);const d=dlabel(i);
    s+=`<text x="${x(i)}" y="${H-5}" font-size="9" text-anchor="middle" fill="var(--faint)">${MONTHS[d.getMonth()]} ’${String(d.getFullYear()).slice(2)}</text>`;}
@@ -537,14 +590,26 @@ function render(){
  const prod=buildRegime(A,A.regimes,agg);     // PRODUCTION committed regime (from payload)
  const cycles=analyse(A,prod.lab,state.Dmin); // audit production vs price truth
 
- // overlays (outlined, never replace production fills)
- const overlays=[];let wf=null,ocycles=null;
- if(state.ref==='jm'){const jm=buildRegime(A,A.jm,agg);overlays.push({segs:jm.segs,color:'var(--amber)',dash:'4 3'});}
+ // overlays (tinted + laned, never replace production fills)
+ const overlays=[];let wf=null,ocycles=null,refInfo=null;
+ if(state.ref==='jm'){const jm=buildRegime(A,A.jm,agg);
+   overlays.push({name:'JM',segs:jm.segs,color:'var(--amber)',dash:'4 3',tint:'rgba(255,200,87,.09)'});
+   refInfo={name:'JM label',lab:jm.lab};}
  else if(['ma200','dualma','tsmom','macd'].includes(state.ref)&&A.baselines[state.ref]){
-   const bs=buildRegime(A,A.baselines[state.ref],agg);overlays.push({segs:bs.segs,color:'#8FA1FF',dash:'4 3'});}
+   const nm={ma200:'MA200',dualma:'50/200',tsmom:'TSMOM',macd:'MACD'}[state.ref];
+   const bs=buildRegime(A,A.baselines[state.ref],agg);
+   overlays.push({name:nm,segs:bs.segs,color:'#8FA1FF',dash:'4 3',tint:'rgba(143,161,255,.10)'});
+   refInfo={name:nm,lab:bs.lab};}
  if(state.overlay){const lab=overlayLabel(A,state.w);wf=buildRegime(A,labToSegs(lab),agg);
-   overlays.push({segs:wf.segs,color:'var(--violet)',dash:'3 2',fill:'url(#ovhatch)'});
+   overlays.push({name:'WHAT-IF',segs:wf.segs,color:'var(--violet)',dash:'3 2',fill:'url(#ovhatch)'});
    ocycles=analyse(A,lab,state.Dmin);}
+
+ // lane legend + head-to-head net CAGR chip (same long/flat simulation as the shootout table)
+ let ll=`<span><i style="background:rgba(46,204,143,.3);border:1px solid var(--bull)"></i>exit win</span><span><i style="background:rgba(255,84,112,.3);border:1px solid var(--bear)"></i>exit loss</span>`;
+ if(refInfo){const lfP=longFlat(A,prod.lab),lfR=longFlat(A,refInfo.lab);
+   const fC=v=>isNaN(v)?'—':(v>=0?'+':'')+(v*100).toFixed(1)+'%';
+   ll=`<span${tt('Head-to-head · net CAGR','Annualised return of each detector traded long/flat — asset in bull, cash at RF in bear, with costs and PFU tax; identical simulation to the shootout table below. Green = the reference beats production.')}><b style="color:#8FA1FF">${esc(refInfo.name)}</b>&nbsp;<b style="color:${lfR.cagr>=lfP.cagr?'var(--bull)':'var(--bear)'}">${fC(lfR.cagr)}</b>&nbsp;vs prod&nbsp;<b style="color:var(--ink)">${fC(lfP.cagr)}</b>&nbsp;net</span>`+ll;}
+ document.getElementById('lanelegend').innerHTML=ll;
 
  SCENE={A,det:prod,cycles,theta,overlays};
  document.getElementById('chart').innerHTML=chart(A,prod,cycles,theta,overlays);
@@ -712,7 +777,7 @@ function render(){
  document.getElementById('cmptable').innerHTML=cmpHTML;
 
  document.getElementById('foot').innerHTML=
-   `Audit view · The default red/green shading is the pipeline's <b>committed production regime</b> — the traded selection rule (${PRODUCTION.rule}) on the smoothed p_bear, θ=${PRODUCTION.theta==null?'—':PRODUCTION.theta.toFixed(2)}, from <b>${esc(PRODUCTION.source)}</b>. The dotted verticals are the <b>truth</b>: realised crash tops (▲) and recovery troughs (▼) from the underwater drawdown. The gutter brackets audit the production regime against those truth events — the gap is the <b>lag</b> (days) and the amber figure the drawdown taken in it. The <b>what-if overlay</b> (violet hatched) is hypothetical and never replaces production; the JM-label reference (amber) lets you compare the jump-model labels against the traded regime. Every lag, cost and KPI here measures the PRODUCTION regime; downside is the Sortino denominator (semi-deviation) at the pipeline half-life. Baselines (MA200, 50/200 cross, TSMOM, vol-normalised MACD) are computed from the same adjusted-close series in Python; warmup days before a baseline has enough history default to <b>long</b>. The shootout table audits every detector with the same crash detector and Dmin as the KPIs. The net CAGR/vol/Sortino/MaxDD rows simulate each detector as a tradable long/flat strategy — asset in bull, cash at the risk-free rate in bear — charging transaction costs per flip and PFU tax on realised gains at each exit; Buy &amp; hold is the do-nothing benchmark column.`;
+   `Audit view · The default red/green shading is the pipeline's <b>committed production regime</b> — the traded selection rule (${PRODUCTION.rule}) on the smoothed p_bear, θ=${PRODUCTION.theta==null?'—':PRODUCTION.theta.toFixed(2)}, from <b>${esc(PRODUCTION.source)}</b>. The dotted verticals are the <b>truth</b>: realised crash tops (▲) and recovery troughs (▼) from the underwater drawdown. The gutter brackets audit the production regime against those truth events — the gap is the <b>lag</b> (days) and the amber figure the drawdown taken in it. The <b>trade lanes</b> under the gutter turn every bear span into one exit trade: green = the price fell while out (decline avoided, a win), red = it rose (upside missed, a loss); the reference lane (JM amber tint / baselines blue tint in the drawdown panel) aligns directly beneath production so timing and outcome differences are read block-by-block. The <b>what-if overlay</b> (violet hatched) is hypothetical and never replaces production. Every lag, cost and KPI here measures the PRODUCTION regime; downside is the Sortino denominator (semi-deviation) at the pipeline half-life. Baselines (MA200, 50/200 cross, TSMOM, vol-normalised MACD) are computed from the same adjusted-close series in Python; warmup days before a baseline has enough history default to <b>long</b>. The shootout table audits every detector with the same crash detector and Dmin as the KPIs. The net CAGR/vol/Sortino/MaxDD rows simulate each detector as a tradable long/flat strategy — asset in bull, cash at the risk-free rate in bear — charging transaction costs per flip and PFU tax on realised gains at each exit; Buy &amp; hold is the do-nothing benchmark column.`;
 }
 
 // ---- asset selector + control wiring ----

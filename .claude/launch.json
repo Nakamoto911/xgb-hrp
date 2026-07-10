@@ -10,7 +10,7 @@
     {
       "name": "cockpit-static",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8765", "--directory", "/private/tmp/claude-501/-Volumes-PRO-G40-Code-xgb-hrp/10c1fdce-71ab-421c-8b2e-75961d2717d7/scratchpad"],
+      "runtimeArgs": ["-m", "http.server", "8765", "--directory", "/private/tmp/claude-501/-Volumes-PRO-G40-Code-xgb-hrp/d233c561-e739-4150-b563-76fd41be835a/scratchpad"],
       "port": 8765
     }
   ]
