@@ -119,12 +119,6 @@
   .tooltip .tt-t{font-family:'Space Grotesk';font-weight:600;font-size:12.5px;color:var(--ink);margin-bottom:5px;letter-spacing:-.01em}
   .tooltip .tt-d{font-size:11px;line-height:1.5;color:var(--muted)}
   .tooltip .tt-d b{color:var(--ink)}
-  /* production badge + audit overlay (production-truth audit view) */
-  .prodbadge{position:absolute;left:20px;top:6px;z-index:8;display:flex;gap:9px;align-items:center;
-    background:rgba(46,204,143,.10);border:1px solid rgba(46,204,143,.45);border-radius:7px;padding:4px 9px;max-width:74%}
-  .prodbadge .dotp{width:7px;height:7px;border-radius:2px;background:var(--bull);flex:none}
-  .prodbadge .pb-t{font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--bull);font-weight:700;flex:none}
-  .prodbadge .pb-d{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .whatif{margin:8px 0 4px;border:1px dashed rgba(180,142,173,.55);border-radius:10px;padding:10px 12px;background:rgba(180,142,173,.06)}
   .whatif[hidden]{display:none}
   .whatif .wh-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;gap:10px}
@@ -182,7 +176,6 @@
       </div>
       <div class="chartwrap">
         <div id="chart"></div>
-        <div class="prodbadge" id="prodbadge"></div>
         <svg class="crosshair" id="cross" viewBox="0 0 880 578" preserveAspectRatio="xMidYMid meet">
           <line id="chx" x1="0" y1="0" x2="0" y2="0" stroke="var(--ink)" stroke-width="0.7" opacity="0" stroke-dasharray="3 3"/>
           <circle id="chd0" r="3.3" fill="none" opacity="0" stroke="var(--bg)" stroke-width="1"/>
@@ -615,12 +608,6 @@ function render(){
  SCENE={A,det:prod,cycles,theta,overlays};
  document.getElementById('chart').innerHTML=chart(A,prod,cycles,theta,overlays);
  renderOverview(A,prod);
-
- // PRODUCTION badge
- const P=PRODUCTION;
- document.getElementById('prodbadge').innerHTML=
-   `<span class="dotp"></span><span class="pb-t">Production</span>`+
-   `<span class="pb-d" title="${esc(P.source)} · ${esc(P.config)}">signal=${P.signal} · θ=${P.theta==null?'—':P.theta.toFixed(2)} · rule=${P.rule} · dwell=${P.dwell==null?'n/a (portfolio '+P.portfolio.dwell+'d)':P.dwell} · src=${esc(P.source)}</span>`;
 
  // what-if strip + diff
  const wEl=document.getElementById('whatif');wEl.hidden=!state.overlay;
