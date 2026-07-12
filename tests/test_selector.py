@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from pipeline.config import PipelineConfig
 from pipeline.selector import select
@@ -67,3 +68,28 @@ def test_restricts_to_on_dates():
     cfg = PipelineConfig(forecast_method="prob_threshold", bull_prob_threshold=0.60)
     out = select(panel, cfg, on_dates=pd.DatetimeIndex(["2024-01-03"]))
     assert list(out.by_date) == [pd.Timestamp("2024-01-03")]
+
+
+def test_select_passes_prices_through_to_ma200_rule():
+    panel = _panel([
+        ("IVV", "2024-01-02", 0.50, 0.50, "Bull"),
+        ("IVV", "2024-01-03", 0.50, 0.50, "Bull"),
+        ("IVV", "2024-01-04", 0.50, 0.50, "Bull"),
+    ])
+    prices = pd.DataFrame(
+        {"IVV": [100.0, 101.0, 102.0]},
+        index=pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]),
+    )
+    cfg = PipelineConfig(forecast_method="ma200", ma_window=2)
+    out = select(panel, cfg, prices=prices)
+    # Steady uptrend on a 2-day SMA → selected every day (warmup + above SMA).
+    assert out.by_date[pd.Timestamp("2024-01-04")] == ["IVV"]
+
+
+def test_select_ma200_without_prices_raises():
+    panel = _panel([
+        ("IVV", "2024-01-02", 0.50, 0.50, "Bull"),
+    ])
+    cfg = PipelineConfig(forecast_method="ma200")
+    with pytest.raises(ValueError, match="requires prices"):
+        select(panel, cfg)

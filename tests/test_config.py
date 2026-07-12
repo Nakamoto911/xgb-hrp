@@ -55,6 +55,33 @@ def test_bull_prob_threshold_bounds():
         PipelineConfig(bull_prob_threshold=1.0)
 
 
+def test_bull_prob_threshold_default_is_040():
+    assert PipelineConfig().bull_prob_threshold == 0.40
+
+
+@pytest.mark.parametrize("method", ["ma200", "hybrid"])
+def test_price_aware_forecast_methods_accepted(method):
+    cfg = PipelineConfig(forecast_method=method)
+    assert cfg.forecast_method == method
+
+
+def test_ma_window_default_and_bounds():
+    assert PipelineConfig().ma_window == 200
+    PipelineConfig(ma_window=2)
+    with pytest.raises(ValidationError):
+        PipelineConfig(ma_window=1)
+
+
+def test_hybrid_bear_threshold_default_and_bounds():
+    assert PipelineConfig().hybrid_bear_threshold == 0.80
+    PipelineConfig(hybrid_bear_threshold=0.01)
+    PipelineConfig(hybrid_bear_threshold=0.99)
+    with pytest.raises(ValidationError):
+        PipelineConfig(hybrid_bear_threshold=0.0)
+    with pytest.raises(ValidationError):
+        PipelineConfig(hybrid_bear_threshold=1.0)
+
+
 def test_lambda_grid_paper_default():
     cfg = PipelineConfig()
     assert cfg.jm_lambda_grid == (4.64, 10.0, 15.0, 21.54, 30.0, 46.42, 70.0, 100.0)

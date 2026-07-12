@@ -113,6 +113,23 @@ def test_drift_band_reduces_turnover(prices, forecast):
     assert res_loose.total_tc <= res_tight.total_tc
 
 
+def test_executor_runs_end_to_end_with_hybrid_forecast_method(prices, forecast):
+    """Plumbing smoke test: hybrid needs Executor to thread ``self.prices``
+    through selector.select() -> apply_rule(), which the other rules don't."""
+    cfg = PipelineConfig(
+        pool="etf", risk_free_asset="BIL",
+        rebalance_frequency="monthly",
+        risk_monitor_enabled=False,
+        forecast_method="hybrid", ma_window=50, hybrid_bear_threshold=0.80,
+        allocator="ew",
+        start_date=str(prices.index[0].date()), end_date=str(prices.index[-1].date()),
+    )
+    res = Executor(config=cfg, prices=prices, forecast_panel=forecast,
+                   initial_capital=100_000).run()
+    assert res.nav.iloc[-1] > 0
+    assert not res.weights.empty
+
+
 def test_empty_selection_routes_to_risk_free(prices):
     """When no asset passes the rule, the executor parks in the risk-free leg."""
     # Forecast panel where p_bull = 0 always → no asset passes any positive theta.

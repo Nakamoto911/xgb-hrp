@@ -140,12 +140,14 @@ One XGBoost classifier per asset, trained on (features → next-day regime label
 Per user decision: the user picks the rule applied in Module 5. All rules run from the same XGBoost outputs above; the rule is a thin selector layer.
 | Rule key             | Definition                                                    | Threshold default |
 |----------------------|---------------------------------------------------------------|-------------------|
-| `prob_threshold`     | `P_bull[t+1] ≥ θ`                                             | θ = 0.60          |
-| `regime_and_prob`    | `regime_forecast = Bull AND P_bull ≥ θ`                       | θ = 0.55          |
-| `ewma_smoothed`      | `P_bull_smoothed[t+1] ≥ θ` (matches `xgboost` repo signal)    | θ = 0.50          |
+| `prob_threshold`     | `P_bull[t+1] ≥ θ`                                             | shared `bull_prob_threshold`, default 0.40 |
+| `regime_and_prob`    | `regime_forecast = Bull AND P_bull ≥ θ`                       | shared `bull_prob_threshold`, default 0.40 |
+| `ewma_smoothed`      | `P_bull_smoothed[t+1] ≥ θ` (matches `xgboost` repo signal)    | shared `bull_prob_threshold`, default 0.40 |
 | `trend`              | `P_bull` rising over last N days (slope > 0, OLS on window)   | N = 5, slope > 0  |
 | `last_day_regime`    | Simple: `regime_forecast[t+1] == Bull`                        | n/a               |
-All rules share the EWMA smoothing pipeline (half-life from `xgboost` config) so they're commensurable.
+| `ma200`               | Price-only: `price ≥ SMA(price, N)`                          | N = 200           |
+| `hybrid`              | `price ≥ SMA(price, N) AND P_bear_smoothed ≤ θ_bear` (i.e. bear when price < MA200 OR smoothed p_bear > θ_bear) | N = 200, θ_bear = 0.80 |
+All rules share the EWMA smoothing pipeline (half-life from `xgboost` config) so they're commensurable. `ma200` and `hybrid` are price-aware — they additionally require the pool's price panel, not just the forecast panel.
 ### 6.4 Parallelization
 Per-asset XGBoost training is embarrassingly parallel. `joblib.Parallel(n_jobs=-1)`. XGBoost itself uses internal threads — explicitly set `n_jobs=1` *inside* each model and parallelize at the outer (per-asset) level to avoid thread oversubscription.
 ---
@@ -428,10 +430,12 @@ class PipelineConfig:
     jm_lambda_grid: tuple = (4.64, 10.0, 15.0, 21.54, 30.0, 46.42, 70.0, 100.0)
     jm_lookback_years: int = 11
     # Forecast
-    forecast_method: Literal["prob_threshold", "regime_and_prob",
-                             "ewma_smoothed", "trend", "last_day_regime"] = "ewma_smoothed"
-    bull_prob_threshold: float = 0.60
+    forecast_method: Literal["prob_threshold", "regime_and_prob", "ewma_smoothed",
+                             "trend", "last_day_regime", "ma200", "hybrid"] = "ewma_smoothed"
+    bull_prob_threshold: float = 0.40
     trend_window: int = 5
+    ma_window: int = 200               # SMA window (days) for ma200 / hybrid
+    hybrid_bear_threshold: float = 0.80  # smoothed p_bear gate for hybrid
     # Allocator
     allocator: Literal["hrp", "ew", "momentum_30d", "min_vol_30d"] = "hrp"
     hrp_lookback_years: int = 4

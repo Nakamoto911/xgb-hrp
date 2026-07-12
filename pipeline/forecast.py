@@ -36,6 +36,8 @@ RuleName = Literal[
     "ewma_smoothed",
     "trend",
     "last_day_regime",
+    "ma200",
+    "hybrid",
 ]
 
 
@@ -76,6 +78,15 @@ def _project_to_forecast_panel(signals: dict[str, pd.DataFrame]) -> pd.DataFrame
     return pd.concat(rows, ignore_index=True).sort_values(["symbol", "date"])
 
 
+def forecast_panel_cache_path(config: PipelineConfig) -> Path:
+    """Cache path for a pool/window/feature-version forecast panel."""
+    end_str = config.end_date or date.today().isoformat()
+    return (
+        config.cache_dir
+        / f"forecasts_{config.pool}_{config.start_date}_{end_str}_{config.feature_version}.parquet"
+    )
+
+
 def build_forecasts(
     config: PipelineConfig,
     *,
@@ -87,11 +98,7 @@ def build_forecasts(
             f"Forecast build for pool={config.pool!r} not wired. "
             f"Supported pools: {list(POOL_TO_XGB_UNIVERSE)}."
         )
-    end_str = config.end_date or date.today().isoformat()
-    out_path = (
-        config.cache_dir
-        / f"forecasts_{config.pool}_{config.start_date}_{end_str}_{config.feature_version}.parquet"
-    )
+    out_path = forecast_panel_cache_path(config)
     if save and out_path.exists() and not force_refresh:
         logger.info("Loading cached forecast panel from %s", out_path)
         return ForecastOutput(panel=pd.read_parquet(out_path), path=out_path)
@@ -156,13 +163,50 @@ def rule_last_day_regime(df: pd.DataFrame, *, theta: float = 0.0) -> pd.Series:
     return df["regime_forecast"] == "Bull"
 
 
+def rule_ma200(df: pd.DataFrame, *, price: pd.Series, ma_window: int = 200) -> pd.Series:
+    """True when price is at/above its ``ma_window``-day SMA.
+
+    Warmup convention (mirrors cockpit.py's ``_baseline_labels``): while the
+    SMA is NaN but price exists, default to bull; where price itself is NaN,
+    default to not-selected. ``price`` is the full-history series — the SMA
+    is computed before restricting to ``df.index``, so the warmup window is
+    anchored to price history, not to the panel's date range.
+    """
+    sma = price.rolling(ma_window).mean()
+    bull = (price >= sma) | (sma.isna() & price.notna())
+    return bull.reindex(df.index)
+
+
+def rule_hybrid(
+    df: pd.DataFrame,
+    *,
+    price: pd.Series,
+    ma_window: int = 200,
+    hybrid_bear_threshold: float = 0.80,
+) -> pd.Series:
+    """Bear when price < MA200 OR smoothed p_bear > threshold.
+
+    Combines the price-trend rule with a volatility-regime backstop: an asset
+    is only held while it is both above its SMA and the model's smoothed
+    bear probability stays at/below ``hybrid_bear_threshold``.
+    """
+    above_ma = rule_ma200(df, price=price, ma_window=ma_window)
+    p_bear_smoothed = 1.0 - df["p_bull_smoothed"]
+    return above_ma & (p_bear_smoothed <= hybrid_bear_threshold)
+
+
 RULES: dict[RuleName, Callable[..., pd.Series]] = {
     "prob_threshold": rule_prob_threshold,
     "regime_and_prob": rule_regime_and_prob,
     "ewma_smoothed": rule_ewma_smoothed,
     "trend": rule_trend,
     "last_day_regime": rule_last_day_regime,
+    "ma200": rule_ma200,
+    "hybrid": rule_hybrid,
 }
+
+# Rules that need the price panel (as opposed to just the forecast panel).
+PRICE_RULES = {"ma200", "hybrid"}
 
 
 def apply_rule(
@@ -171,18 +215,38 @@ def apply_rule(
     *,
     theta: float,
     trend_window: int,
+    prices: pd.DataFrame | None = None,
+    ma_window: int = 200,
+    hybrid_bear_threshold: float = 0.80,
 ) -> pd.DataFrame:
     """Apply a selection rule across the full long-form forecast panel.
+
+    ``prices`` (date x symbol) is required for the price-aware rules
+    (``ma200``, ``hybrid``); every symbol in ``panel`` must have a column.
 
     Returns a DataFrame with columns ``[symbol, date, selected]``.
     """
     if rule not in RULES:
         raise ValueError(f"Unknown rule {rule!r}. Known: {list(RULES)}.")
     fn = RULES[rule]
+    if rule in PRICE_RULES:
+        if prices is None:
+            raise ValueError(f"rule {rule!r} requires prices (date x symbol close panel).")
+        missing = sorted(set(panel["symbol"].unique()) - set(prices.columns))
+        if missing:
+            raise ValueError(f"prices panel missing symbols required by rule {rule!r}: {missing}.")
     out: list[pd.DataFrame] = []
     for symbol, group in panel.groupby("symbol"):
         sub = group.set_index("date").sort_index()
-        sel = fn(sub, window=trend_window) if rule == "trend" else fn(sub, theta=theta)
+        if rule == "trend":
+            sel = fn(sub, window=trend_window)
+        elif rule in PRICE_RULES:
+            kwargs = {"price": prices[symbol], "ma_window": ma_window}
+            if rule == "hybrid":
+                kwargs["hybrid_bear_threshold"] = hybrid_bear_threshold
+            sel = fn(sub, **kwargs)
+        else:
+            sel = fn(sub, theta=theta)
         out.append(
             pd.DataFrame(
                 {
@@ -197,12 +261,16 @@ def apply_rule(
 
 __all__ = [
     "ForecastOutput",
+    "PRICE_RULES",
     "RULES",
     "RuleName",
     "apply_rule",
     "build_forecasts",
+    "forecast_panel_cache_path",
     "rule_ewma_smoothed",
+    "rule_hybrid",
     "rule_last_day_regime",
+    "rule_ma200",
     "rule_prob_threshold",
     "rule_regime_and_prob",
     "rule_trend",

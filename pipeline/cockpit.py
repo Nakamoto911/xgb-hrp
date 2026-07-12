@@ -98,6 +98,10 @@ def _baseline_labels(px: pd.Series) -> dict[str, pd.Series]:
     Warmup convention: rolling stats are NaN until they have enough history;
     the bear comparisons below evaluate to False on NaN, so warmup days default
     to 0 (bull/held) — "long until the signal has enough history".
+
+    Note: this "ma200" reference baseline is a fixed canonical 200-day SMA and
+    does NOT track ``config.ma_window`` — unlike the production ``ma200`` rule
+    (``pipeline.forecast.rule_ma200``), which is configurable.
     """
     ma200 = px.rolling(200).mean()
     ma50 = px.rolling(50).mean()
@@ -132,6 +136,10 @@ def _production_settings(config: PipelineConfig, source: str) -> dict:
         "theta_clear": None,  # per-asset selection has no separate clear θ
         "dwell": None,  # per-asset selection has no dwell (dwell is portfolio-level)
         "bull_prob_threshold": config.bull_prob_threshold,
+        "ma_window": config.ma_window if config.forecast_method in ("ma200", "hybrid") else None,
+        "hybrid_bear_threshold": (
+            config.hybrid_bear_threshold if config.forecast_method == "hybrid" else None
+        ),
         "smoothing": "EWMA (paper per-asset half-life)",
         # portfolio-level risk monitor — context only, does not gate per-asset bands
         "portfolio": {
@@ -171,6 +179,12 @@ def build_cockpit_payload(
         config.forecast_method,
         theta=config.bull_prob_threshold,
         trend_window=config.trend_window,
+        # ffill mirrors the forward-filled panel the Executor actually trades
+        # on (run_pipeline.py's prices_with_rf), so the price-aware rules
+        # agree with production instead of the raw (gap-containing) panel.
+        prices=prices.ffill(),
+        ma_window=config.ma_window,
+        hybrid_bear_threshold=config.hybrid_bear_threshold,
     )
     selected_by_symbol = {
         sym: g.set_index("date")["selected"] for sym, g in flags.groupby("symbol")

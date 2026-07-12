@@ -71,18 +71,23 @@ def select(
     config: PipelineConfig,
     *,
     on_dates: pd.DatetimeIndex | None = None,
+    prices: pd.DataFrame | None = None,
 ) -> SelectorOutput:
     """Run the configured selection rule on a forecast panel.
 
     ``on_dates`` restricts the output to a specific set of rebalance dates
     (e.g. drift-band rebalances). When ``None`` every date in the panel
-    receives a selection.
+    receives a selection. ``prices`` is required when ``config.forecast_method``
+    is one of the price-aware rules (``ma200``, ``hybrid``).
     """
     flags = apply_rule(
         forecast_panel,
         config.forecast_method,
         theta=config.bull_prob_threshold,
         trend_window=config.trend_window,
+        prices=prices,
+        ma_window=config.ma_window,
+        hybrid_bear_threshold=config.hybrid_bear_threshold,
     )
     if on_dates is not None:
         flags = flags[flags["date"].isin(on_dates)]

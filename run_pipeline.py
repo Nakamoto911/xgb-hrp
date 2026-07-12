@@ -33,7 +33,7 @@ from pipeline.eval import (
     run_all as run_all_evals,
 )
 from pipeline.executor import Executor
-from pipeline.forecast import build_forecasts
+from pipeline.forecast import PRICE_RULES, build_forecasts
 from pipeline.performance import build_benchmark_navs, build_report, write_report
 from pipeline.regime import build_regimes
 from pipeline.selector import select
@@ -54,10 +54,15 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--forecast-method",
-        choices=["prob_threshold", "regime_and_prob", "ewma_smoothed", "trend", "last_day_regime"],
+        choices=[
+            "prob_threshold", "regime_and_prob", "ewma_smoothed", "trend",
+            "last_day_regime", "ma200", "hybrid",
+        ],
         default=None,
     )
     p.add_argument("--bull-prob-threshold", type=float, default=None)
+    p.add_argument("--ma-window", type=int, default=None)
+    p.add_argument("--hybrid-bear-threshold", type=float, default=None)
     p.add_argument("--force-refresh", action="store_true")
     p.add_argument(
         "--gate",
@@ -83,6 +88,8 @@ def _config_from_args(args: argparse.Namespace) -> PipelineConfig:
         "allocator": args.allocator,
         "forecast_method": args.forecast_method,
         "bull_prob_threshold": args.bull_prob_threshold,
+        "ma_window": args.ma_window,
+        "hybrid_bear_threshold": args.hybrid_bear_threshold,
     }
     base.update({k: v for k, v in overrides.items() if v is not None})
     return PipelineConfig.model_validate(base)
@@ -122,9 +129,11 @@ def _phase_forecast(cfg: PipelineConfig, force_refresh: bool) -> pd.DataFrame:
     return out.panel
 
 
-def _phase_select(cfg: PipelineConfig, forecast_panel: pd.DataFrame):
+def _phase_select(
+    cfg: PipelineConfig, forecast_panel: pd.DataFrame, prices: pd.DataFrame | None = None
+):
     t0 = time.perf_counter()
-    out = select(forecast_panel, cfg)
+    out = select(forecast_panel, cfg, prices=prices)
     dt = time.perf_counter() - t0
     sel_counts = pd.Series({d: len(s) for d, s in out.by_date.items()})
     print(
@@ -185,7 +194,9 @@ def main(argv: list[str] | None = None) -> int:
         forecast_panel = _phase_forecast(cfg, args.force_refresh)
     if args.phase in ("select", "allocate", "all"):
         assert forecast_panel is not None
-        sel_out = _phase_select(cfg, forecast_panel)
+        if prices is None and cfg.forecast_method in PRICE_RULES:
+            prices = load_prices(cfg)  # warm-cache hit; needed by the price-aware rules
+        sel_out = _phase_select(cfg, forecast_panel, prices)
     if args.phase in ("allocate", "all"):
         if prices is None:
             prices = load_prices(cfg)  # warm-cache hit

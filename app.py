@@ -61,11 +61,19 @@ def _sidebar_config() -> tuple[PipelineConfig, bool]:
         with st.expander("Forecast (Module 4)", expanded=False):
             rule = st.selectbox(
                 "Selection rule",
-                ["ewma_smoothed", "prob_threshold", "regime_and_prob", "trend", "last_day_regime"],
+                [
+                    "ewma_smoothed", "prob_threshold", "regime_and_prob", "trend",
+                    "last_day_regime", "ma200", "hybrid",
+                ],
                 index=0,
             )
-            theta = st.slider("Bull-prob threshold θ", 0.30, 0.95, 0.60, step=0.01)
+            theta = st.slider("Bull-prob threshold θ", 0.30, 0.95, 0.40, step=0.01)
             trend_window = st.slider("Trend window (days)", 2, 30, 5)
+            ma_window = st.slider("MA window (days, ma200 / hybrid)", 20, 300, 200)
+            hybrid_bear_threshold = st.slider(
+                "Hybrid bear threshold (smoothed p_bear, hybrid only)",
+                0.05, 0.99, 0.80, step=0.01,
+            )
         with st.expander("Allocator (Module 6)", expanded=False):
             # EW is the default: no covariance/linkage step, so the backtest is
             # fast and the dashboard returns quickly. Switch to HRP for the
@@ -117,6 +125,8 @@ def _sidebar_config() -> tuple[PipelineConfig, bool]:
         "forecast_method": rule,
         "bull_prob_threshold": theta,
         "trend_window": trend_window,
+        "ma_window": ma_window,
+        "hybrid_bear_threshold": hybrid_bear_threshold,
         "allocator": allocator,
         "hrp_lookback_years": hrp_lookback,
         "hrp_linkage": hrp_linkage,

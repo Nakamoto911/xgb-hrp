@@ -86,8 +86,10 @@ python run_pipeline.py [OPTIONS]
   --n-jobs INT                     joblib outer parallelism, default -1
   --allocator {hrp, ew, momentum_30d, min_vol_30d}
   --forecast-method {prob_threshold, regime_and_prob, ewma_smoothed,
-                     trend, last_day_regime}
+                     trend, last_day_regime, ma200, hybrid}
   --bull-prob-threshold FLOAT
+  --ma-window INT                  SMA window (days) for ma200 / hybrid, default 200
+  --hybrid-bear-threshold FLOAT    smoothed p_bear gate for hybrid, default 0.80
   --config PATH                    optional YAML; CLI flags override
   --force-refresh                  rebuild every cache from scratch
   --gate                           exit non-zero on critical eval fail

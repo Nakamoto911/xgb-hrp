@@ -219,7 +219,10 @@ class Executor:
         sub = self.forecast_panel[self.forecast_panel["date"] == date]
         if sub.empty:
             return [], pd.Series(dtype=float)
-        sel_out = select(self.forecast_panel, self.config, on_dates=pd.DatetimeIndex([date]))
+        sel_out = select(
+            self.forecast_panel, self.config,
+            on_dates=pd.DatetimeIndex([date]), prices=self.prices,
+        )
         selected = sel_out.by_date.get(date, [])
         # Keep only selected symbols that are tradeable (have a price today)
         tradeable_today = set(self.prices.columns[self.prices.loc[date].notna()])

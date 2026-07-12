@@ -74,9 +74,15 @@ class PipelineConfig(BaseModel):
         "ewma_smoothed",
         "trend",
         "last_day_regime",
+        "ma200",
+        "hybrid",
     ] = "ewma_smoothed"
-    bull_prob_threshold: float = Field(default=0.60, gt=0.0, lt=1.0)
+    bull_prob_threshold: float = Field(default=0.40, gt=0.0, lt=1.0)
     trend_window: int = Field(default=5, ge=2)
+    ma_window: int = Field(default=200, ge=2)  # SMA window (days) for the ma200 / hybrid rules
+    # Per-asset hybrid-rule gate on smoothed p_bear — distinct from bear_prob_threshold
+    # below (portfolio-level, Module 8 risk monitor).
+    hybrid_bear_threshold: float = Field(default=0.80, gt=0.0, lt=1.0)
     xgb_max_depth: int = 6
     xgb_learning_rate: float = 0.3
     xgb_n_estimators: int = 100
