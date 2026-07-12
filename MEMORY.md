@@ -6,53 +6,55 @@ produced them.
 
 ---
 
-## 2026-07-12 — Pro-rata cash-constrained fills shipped; the drift-0.20 hybrid peak was largely fill-order luck
+## 2026-07-12 — Tax-aware executor (`flip_only`) shipped; falsifies the +1.3–1.8pp headroom hypothesis — the 6.64% peak was flip *suppression*, not tax efficiency
 
-**Change (this commit).** `Executor._trade_to_target` buys now fill **pro-rata**:
-when planned buys exceed the cash budget (Σgross > cash/(1+bps)), every buy leg
-scales by the same factor instead of filling in sorted-symbol order — no symbol is
-short-changed by its position in the iteration (next-step #2 of the sweep entry
-below). Rebalances that aren't cash-tight are unchanged (scale = 1). Determinism
-kept: two `compare_rules` runs byte-identical; 126 tests pass (new unit test pins
-the proportional split). Total invested per rebalance is identical to the old code
-(Σ = budget) — only the per-symbol split changes; the metric moves below come from
-different drift-gate crossings downstream, not from the scaling itself.
+**Shipped.** `execution_policy` config field (`drift_band` default = unchanged §9.2
+trigger semantics; `flip_only` = SPEC §9.2.1, promoted from §16): sells fire only on
+selection flips (always full exit — the band never blocks a trend exit, including
+empty-selection routing to rf) or to trim an overweight back to target+band (band as
+cap, minimal realization per event); buys (flip-ins, top-ups) are never band-gated —
+they realize no gains, and gating them would leave flip-out proceeds idling as
+zero-yield cash. Risk-off liquidate/re-enter paths unchanged (always full re-band).
+Threaded through compare_rules/run_pipeline `--execution-policy`, UI, report header.
+6 new executor tests (131 pass). Determinism verified on real data: two
+`PYTHONHASHSEED`s → byte-identical tables. Baseline (`drift_band`) reproduces the
+sweep byte-exactly (hybrid 6.64% / −26.51% / 19.62% drag / 2.4 trades/yr).
 
-**Before/after (`compare_rules`, ETF, 2007-01-01 → 2026-07-12, EW, quarterly,
-monitor off, net; full tables `cache/compare_prorata_etf_d0{20,25}_{before,after}.md`):**
+**Result (ETF, 2007→2026-07-12, EW, quarterly, drift 0.20, monitor off, net):**
 
-| Config | Variant | Seq CAGR | Seq MDD | Pro-rata CAGR | Pro-rata MDD | Δ CAGR |
+| Rule | drift_band CAGR | flip_only CAGR | MDD (band→flip) | Tax drag | Turnover | Trades/yr |
 |---|---|---|---|---|---|---|
-| drift 0.20 | hybrid | +6.64% | −26.5% | **+5.21%** | −26.6% | **−1.43pp** |
-| drift 0.20 | ma200 | +2.44% | −32.4% | +4.16% | −32.4% | +1.72pp |
-| drift 0.20 | prod θ=0.40 | +3.02% | −57.0% | +3.82% | −58.3% | +0.80pp |
-| drift 0.20 | prod θ=0.60 | +1.73% | −57.4% | +2.75% | −57.4% | +1.02pp |
-| drift 0.25 | hybrid | +5.33% | −25.4% | **+4.94%** | −26.5% | −0.39pp |
-| drift 0.25 | ma200 | +5.34% | −25.3% | +3.64% | **−20.7%** | −1.70pp |
-| drift 0.25 | prod θ=0.40 | +2.74% | −56.7% | +4.20% | −58.0% | +1.46pp |
-| drift 0.25 | prod θ=0.60 | +2.86% | −54.7% | +3.75% | −54.7% | +0.89pp |
+| hybrid | **+6.64%** | +4.85% | −26.5% → **−24.8%** | 19.6% → 60.4% | 50% → 233%/yr | 2.4 → 13.3 |
+| ma200 | +2.44% | **+4.03%** | −32.4% → −26.9% | 15.6% → 34.6% | 85% → 197%/yr | 3.0 → 12.4 |
+
+Band probes under flip_only (hybrid): 4.18% / 4.43% / 4.85% at drift 0.05 / 0.10 /
+0.20 — the drift knob stops being a lever (band = cap only), so the peaked drift
+ridge of the sweep is confirmed as a `drift_band` artifact.
 
 **Reads:**
 
-1. **Execution-path sensitivity is ±1–1.7pp at these configs** — larger than the
-   ±0.6pp estimated from the pre-fix hash-order spread. The 6.64% drift-0.20
-   hybrid peak was substantially fill-order luck; the honest number under
-   order-free fills is **hybrid ≈ 4.9–5.2% net**.
-2. **The peaked drift ridge flattens**: hybrid's 0.20-vs-0.25 gap shrinks from
-   1.31pp to 0.27pp — supporting the earlier suspicion that the ridge was
-   anchor-alignment/execution path dependence, not signal.
-3. **Rule ordering intact**: hybrid > ma200 > production at 0.20; at 0.25 hybrid
-   still leads on CAGR while ma200 takes the best MDD (−20.7%).
-4. **Nothing clears the 60/40 target (6.57%) any more** → tax-aware execution
-   (next-step #1 below; hybrid's tax drag is 43–56% cumulative here) is now the
-   binding lever. Fill mechanics are settled.
+1. **Hypothesis falsified at the peak config.** With EW weights ~8–12% all below the
+   0.20 band, `drift_band` was gating the *selection flips themselves* — the 6.64%
+   config traded 2.4×/yr because it mostly ignored hybrid's churn and held through
+   p_bear spikes. The pfu=0 ablation priced the tax on the trades `drift_band`
+   actually made; it says nothing about a policy that makes different trades.
+   `flip_only` faithfully executes every flip → hybrid's flip churn is where the
+   realizations live → tax drag 60%.
+2. **Direction of the effect flips with signal churn**: ma200 (rarer, better-timed
+   flips) *gains* +1.6pp and 5.5pp of MDD from faithful flip execution; hybrid
+   (p_bear-spike churn) loses 1.8pp. Consistent with 2026-07-07's per-asset finding
+   that hybrid "sells winners on p_bear spikes".
+3. **flip_only meets the MDD target, misses CAGR**: hybrid −24.8% (≤ −25% ✓) but
+   4.85% < 6.57%. Crash exits are now full-size instead of band-gated — that's the
+   MDD win and part of the tax cost.
+4. **The durable lever is selection-flip churn, not re-band churn.** Next step
+   candidates: selection hysteresis (dwell/confirmation before dropping a held
+   name — a `flip_only` portfolio only trades when selection changes, so damping
+   selection churn attacks tax drag directly), raising `hybrid_bear_threshold`, or
+   accepting `drift_band` 0.20 as an implicit flip suppressor with its documented
+   anchor-alignment path-dependence risk.
 
-**Measurement gotcha (cost an hour):** `xgb-hrp` is pip-installed editable
-pointing at the main checkout, so `python scripts/compare_rules.py` run from a
-worktree imports the **main repo's** `pipeline`, silently ignoring worktree edits
-(`sys.path[0]` is `scripts/`, not the cwd). Set `PYTHONPATH=<worktree>` when
-running scripts against worktree code; `python -m pytest` is unaffected (cwd on
-path).
+Tables: `cache/compare_rules_etf_2007-01-01_2026-07-12{,_flip_only}.md`.
 
 ---
 

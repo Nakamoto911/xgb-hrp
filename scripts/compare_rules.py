@@ -237,7 +237,8 @@ def _render_header(config_base: PipelineConfig, variant_results: list[VariantRes
         f"- Pool: `{config_base.pool}`  |  Window: `{config_base.start_date}` → `{end}`",
         f"- Allocator: `{config_base.allocator}`  |  Rebalance frequency: "
         f"`{config_base.rebalance_frequency}`  |  Drift threshold: "
-        f"`{config_base.drift_threshold}`",
+        f"`{config_base.drift_threshold}`  |  Execution policy: "
+        f"`{config_base.execution_policy}`",
         f"- Risk monitor: **{'ENABLED' if config_base.risk_monitor_enabled else 'DISABLED'}** "
         f"(signal=`{config_base.risk_monitor_signal}`, "
         f"bear_prob_threshold=`{config_base.bear_prob_threshold}`, "
@@ -316,9 +317,15 @@ def compare(
         print(md)
     if write:
         end = config_base.end_date or date.today().isoformat()
+        # Non-default policy gets its own file so a flip_only run never
+        # clobbers the drift_band baseline table for the same window.
+        policy_tag = (
+            "" if config_base.execution_policy == "drift_band"
+            else f"_{config_base.execution_policy}"
+        )
         out_path = (
             config_base.cache_dir
-            / f"compare_rules_{config_base.pool}_{config_base.start_date}_{end}.md"
+            / f"compare_rules_{config_base.pool}_{config_base.start_date}_{end}{policy_tag}.md"
         )
         config_base.cache_dir.mkdir(parents=True, exist_ok=True)
         out_path.write_text(md)
@@ -355,6 +362,12 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--drift-threshold", type=float, default=None)
     p.add_argument(
+        "--execution-policy", choices=["drift_band", "flip_only"], default=None,
+        help="drift_band: band triggers a full re-band to target (SPEC §9.2). "
+             "flip_only: tax-aware — sell only on selection flips or to trim "
+             "back to target+band; band is a cap, not a trigger (SPEC §16).",
+    )
+    p.add_argument(
         "--risk-monitor-signal", choices=["raw", "smoothed"], default=None,
         help="Module 8 input signal: raw P(bear) (default) or EWMA-smoothed.",
     )
@@ -379,6 +392,7 @@ def _config_from_args(args: argparse.Namespace) -> PipelineConfig:
         overrides["rebalance_frequency"] = args.rebalance_frequency
     optional_overrides = {
         "drift_threshold": args.drift_threshold,
+        "execution_policy": args.execution_policy,
         "risk_monitor_signal": args.risk_monitor_signal,
         "bear_prob_threshold": args.bear_prob_threshold,
         "universe_pct_threshold": args.universe_pct_threshold,

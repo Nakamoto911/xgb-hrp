@@ -199,6 +199,13 @@ At each rebalance date:
 2. Current portfolio weights `w_current` are measured (after market drift since last execution).
 3. For each asset: if `|w_target_i - w_current_i| < drift_threshold`, do not trade. Else trade.
 4. Drift threshold default: **0.015 (1.5%)**, inherited from `hrp` repo.
+
+#### 9.2.1 Execution policy (`execution_policy`)
+Step 3 above describes the default `drift_band` policy: the band is a *trigger*, applied symmetrically — a breach trades the asset all the way back to target, selling winners and realizing taxable gains merely to re-band. The alternative `flip_only` policy (tax-aware, promoted from §16) replaces step 3 at scheduled rebalances:
+- **Sells fire only on selection flips**: a held asset absent from today's selection is sold in full — the band never blocks a trend exit (this also makes empty-selection routing to risk-free a full exit).
+- **The band is a cap, not a trigger, for gain realization**: a continuing holding above `w_target + drift_threshold` is trimmed back to that cap (minimal realization), never re-banded to target.
+- **Buys are never band-gated**: flip-in entries and underweight top-ups realize no gains, so freed cash redeploys toward target instead of idling (buys remain cash-constrained; no new cash is created).
+Risk-off liquidations and re-entries (Section 10) ignore the policy and always trade fully to target. Default: `drift_band` (backward-compatible).
 ### 9.3 Costs
 | Cost              | Default                            | Source              |
 |-------------------|------------------------------------|---------------------|
@@ -445,6 +452,7 @@ class PipelineConfig:
     rebalance_frequency: Literal["daily", "weekly", "monthly",
                                  "quarterly", "semi-annually", "yearly"] = "quarterly"
     drift_threshold: float = 0.015
+    execution_policy: Literal["drift_band", "flip_only"] = "drift_band"  # §9.2.1
     transaction_cost_bps: float = 5.0
     pfu_rate: float = 0.314
     # Risk Monitor
@@ -501,7 +509,7 @@ These are deliberately out of scope for v1 but flagged for future spec revisions
 2. **Multi-asset risk-free.** Currently single risk-free destination; could allow a defensive basket (e.g. 50% bills + 50% gold) on risk-off.
 3. **Soft risk-off.** Currently binary; a graded version that scales equity exposure 100% → 0% as universe bear % crosses 25% → 60% may reduce whipsaw cost.
 4. **Online learning.** Currently walk-forward with 6-month chunks; incremental XGBoost updates (Booster.update) could shrink retraining cost.
-5. **Tax-aware allocation.** Drift-band already reduces tax drag; an allocator that explicitly penalizes realized gains during the optimization step would close the loop.
+5. **Tax-aware allocation.** The execution-side half shipped as `execution_policy = "flip_only"` (§9.2.1): rebalance on selection flips only, drift band as a cap rather than a trigger for gain realization. Still open: an allocator that explicitly penalizes realized gains during the optimization step would close the loop.
 6. **Live trading adapter.** Spec covers backtest + daily forecast; an IBKR adapter for live execution is the natural next step (CTO account, no PEA restrictions).
 ---
 ## 17. Acceptance Criteria for v1

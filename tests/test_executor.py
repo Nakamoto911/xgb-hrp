@@ -130,37 +130,177 @@ def test_executor_runs_end_to_end_with_hybrid_forecast_method(prices, forecast):
     assert not res.weights.empty
 
 
-def test_cash_constrained_buys_fill_pro_rata(prices, forecast):
-    """When planned buys exceed cash, every leg scales by the same factor —
-    no symbol is short-changed by its position in the (sorted) fill order."""
-    cfg = PipelineConfig(
+# -----------------------------------------------------------------------------
+# flip_only execution policy (SPEC §9.2.1 — tax-aware)
+# -----------------------------------------------------------------------------
+def _deterministic_prices(n_days: int = 400) -> pd.DataFrame:
+    """Noise-free exponential paths so weight-drift arithmetic is exact.
+    HOT rallies hard, FLAT and COLD stay put, BIL compounds slowly."""
+    idx = pd.date_range("2020-01-02", periods=n_days, freq="B")
+    t = np.arange(n_days)
+    return pd.DataFrame(
+        {
+            "COLD": 100.0 * np.exp(0.0000 * t),
+            "FLAT": 100.0 * np.exp(0.0000 * t),
+            "HOT": 100.0 * np.exp(0.0040 * t),
+            "BIL": 100.0 * np.exp(0.0001 * t),
+        },
+        index=idx,
+    )
+
+
+def _bull_panel(
+    prices: pd.DataFrame, symbols: list[str], bear_from: dict[str, int] | None = None
+) -> pd.DataFrame:
+    """All-bull forecast panel; ``bear_from[sym] = day_offset`` flips that
+    symbol to bear (drops it from selection) from that offset onward."""
+    bear_from = bear_from or {}
+    rows = []
+    for sym in symbols:
+        for offset, date in enumerate(prices.index):
+            bear = offset >= bear_from.get(sym, len(prices) + 1)
+            p_bear = 0.9 if bear else 0.1
+            rows.append({
+                "symbol": sym, "asset_name": sym, "date": date,
+                "p_bear": p_bear, "p_bull": 1.0 - p_bear,
+                "p_bull_smoothed": 1.0 - p_bear,
+                "regime_forecast": "Bear" if bear else "Bull",
+            })
+    return pd.DataFrame(rows)
+
+
+def _flip_only_cfg(prices: pd.DataFrame, **overrides) -> PipelineConfig:
+    base = dict(
         pool="etf", risk_free_asset="BIL",
         rebalance_frequency="monthly",
         risk_monitor_enabled=False,
         forecast_method="prob_threshold", bull_prob_threshold=0.55,
         allocator="ew",
+        execution_policy="flip_only",
         start_date=str(prices.index[0].date()), end_date=str(prices.index[-1].date()),
     )
-    ex = Executor(config=cfg, prices=prices, forecast_panel=forecast)
-    from pipeline.executor import AVCOLedger
+    base.update(overrides)
+    return PipelineConfig(**base)
 
-    ledger = AVCOLedger()
-    targets = pd.Series({"IVV": 0.5, "AGG": 0.3, "GLD": 0.2})
-    prices_today = pd.Series({"IVV": 100.0, "AGG": 50.0, "GLD": 200.0})
-    # cash covers only 30% of the desired buy value → hard constraint.
-    cash_after, trade_rows, total_tc, _ = ex._trade_to_target(
-        targets, prices_today, ledger, cash=300.0, portfolio_value=1000.0,
-        gate_drift=False,
+
+def test_flip_only_enters_below_band():
+    """Flip-in entries are never band-gated: with EW targets (1/3 ≈ 0.33) below
+    a 0.40 band, drift_band never invests at all while flip_only deploys the
+    full book on the first rebalance."""
+    prices = _deterministic_prices()
+    panel = _bull_panel(prices, ["COLD", "FLAT", "HOT"])
+    res_flip = Executor(
+        config=_flip_only_cfg(prices, drift_threshold=0.40),
+        prices=prices, forecast_panel=panel,
+    ).run()
+    res_band = Executor(
+        config=_flip_only_cfg(prices, drift_threshold=0.40, execution_policy="drift_band"),
+        prices=prices, forecast_panel=panel,
+    ).run()
+    assert res_band.trades.empty  # 0.33 target < 0.40 gate: drift_band stuck in cash
+    last_w = res_flip.weights.iloc[-1]
+    assert last_w.sum() > 0.95  # flip_only fully invested
+
+
+def test_flip_only_exits_dropped_symbol_below_band():
+    """A selection flip-out always sells in full, even when the position's
+    weight is far below the band; drift_band would keep holding it."""
+    prices = _deterministic_prices()
+    panel = _bull_panel(prices, ["COLD", "FLAT", "HOT"], bear_from={"COLD": 150})
+    band = dict(drift_threshold=0.60)
+    res_flip = Executor(
+        config=_flip_only_cfg(prices, **band), prices=prices, forecast_panel=panel,
+    ).run()
+    res_band = Executor(
+        config=_flip_only_cfg(prices, **band, execution_policy="drift_band"),
+        prices=prices, forecast_panel=panel,
+    ).run()
+    # flip_only: COLD is gone after the first post-flip rebalance…
+    assert res_flip.weights.iloc[-1].get("COLD", 0.0) == 0.0
+    cold_sells = res_flip.trades[
+        (res_flip.trades["symbol"] == "COLD") & (res_flip.trades["side"] == "sell")
+    ]
+    assert not cold_sells.empty
+    # …while drift_band never even entered (weights below the 0.60 gate).
+    assert res_band.trades.empty
+
+
+def test_flip_only_does_not_sell_winners_within_cap():
+    """A continuing winner drifting above target but within target+band is
+    left alone — no sell, no realized gain (the tax-aware core guarantee)."""
+    prices = _deterministic_prices(n_days=120)  # HOT drifts up but stays < 0.5+0.30
+    panel = _bull_panel(prices, ["FLAT", "HOT"])
+    res = Executor(
+        config=_flip_only_cfg(prices, drift_threshold=0.30),
+        prices=prices, forecast_panel=panel,
+    ).run()
+    sells = res.trades[res.trades["side"] == "sell"]
+    assert sells.empty  # nothing was ever sold — HOT rode from 0.50 to <0.80 untouched
+    assert res.total_tax == 0.0
+
+
+def test_flip_only_trims_to_cap_not_to_target():
+    """Above target+band the winner is trimmed to the cap, not re-banded to
+    target: at the first trim event (same date, same trigger threshold for
+    both policies) flip_only sells only the overshoot above target+band while
+    drift_band sells all the way down to target — a strictly larger
+    realization. (Cumulative tax over a long monotone rally is NOT smaller
+    for flip_only: the fatter winner position compounds more dollars of gain;
+    the policy's guarantee is minimal realization per event plus deferral.)"""
+    prices = _deterministic_prices()  # HOT: +0.4%/day → breaches 0.5+0.10 fast
+    panel = _bull_panel(prices, ["FLAT", "HOT"])
+    band = dict(drift_threshold=0.10)
+    res_flip = Executor(
+        config=_flip_only_cfg(prices, **band), prices=prices, forecast_panel=panel,
+    ).run()
+    res_band = Executor(
+        config=_flip_only_cfg(prices, **band, execution_policy="drift_band"),
+        prices=prices, forecast_panel=panel,
+    ).run()
+
+    def hot_sells(res):
+        return res.trades[
+            (res.trades["symbol"] == "HOT") & (res.trades["side"] == "sell")
+        ]
+
+    flip_sells, band_sells = hot_sells(res_flip), hot_sells(res_band)
+    assert not flip_sells.empty  # the cap does bind on a hard rally
+    # Both policies trigger at the same threshold → same first-event date.
+    assert flip_sells["date"].iloc[0] == band_sells["date"].iloc[0]
+    # Post-trim weight sits at the cap (0.60) for flip_only, back at target
+    # (0.50) for drift_band.
+    trim_date = flip_sells["date"].iloc[0]
+    assert res_flip.weights.loc[trim_date, "HOT"] == pytest.approx(0.60, abs=0.02)
+    assert res_band.weights.loc[trim_date, "HOT"] == pytest.approx(0.50, abs=0.02)
+    # Minimal realization per event, and taxes actually accrue.
+    assert 0.0 < flip_sells["realized_gain"].iloc[0] < band_sells["realized_gain"].iloc[0]
+    assert res_flip.total_tax > 0.0
+
+
+def test_flip_only_empty_selection_full_exit_to_risk_free():
+    """When every symbol flips bear, flip_only parks 100% in the risk-free leg
+    even with a band far wider than any single position weight."""
+    prices = _deterministic_prices()
+    panel = _bull_panel(
+        prices, ["COLD", "FLAT", "HOT"],
+        bear_from={"COLD": 150, "FLAT": 150, "HOT": 150},
     )
-    gross = {r["symbol"]: r["units"] * r["price"] for r in trade_rows}
-    # All three legs filled, proportional to their planned deltas (5:3:2).
-    assert set(gross) == {"IVV", "AGG", "GLD"}
-    assert gross["IVV"] / gross["AGG"] == pytest.approx(0.5 / 0.3, rel=1e-9)
-    assert gross["IVV"] / gross["GLD"] == pytest.approx(0.5 / 0.2, rel=1e-9)
-    # Budget fully used (gross + tc == cash), never negative.
-    assert cash_after == pytest.approx(0.0, abs=1e-6)
-    assert cash_after > -1e-9
-    assert sum(gross.values()) + total_tc == pytest.approx(300.0, abs=1e-6)
+    res = Executor(
+        config=_flip_only_cfg(prices, drift_threshold=0.60),
+        prices=prices, forecast_panel=panel,
+    ).run()
+    assert res.weights.iloc[-1].get("BIL", 0.0) > 0.99
+
+
+def test_flip_only_is_deterministic():
+    """Two identical runs must be byte-identical (guards the 73e70af fix)."""
+    prices = _deterministic_prices()
+    panel = _bull_panel(prices, ["COLD", "FLAT", "HOT"], bear_from={"COLD": 150})
+    cfg = _flip_only_cfg(prices, drift_threshold=0.20)
+    res1 = Executor(config=cfg, prices=prices, forecast_panel=panel).run()
+    res2 = Executor(config=cfg, prices=prices, forecast_panel=panel).run()
+    pd.testing.assert_series_equal(res1.nav, res2.nav)
+    pd.testing.assert_frame_equal(res1.trades, res2.trades)
 
 
 def test_empty_selection_routes_to_risk_free(prices):

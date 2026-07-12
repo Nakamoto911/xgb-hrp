@@ -90,6 +90,15 @@ def _sidebar_config() -> tuple[PipelineConfig, bool]:
                 index=3,
             )
             drift = st.slider("Drift threshold", 0.0, 0.10, 0.015, step=0.001)
+            exec_policy = st.selectbox(
+                "Execution policy",
+                ["drift_band", "flip_only"],
+                index=0,
+                help="drift_band: the band triggers a full re-band to target. "
+                     "flip_only (tax-aware): sell only on selection flips or to "
+                     "trim back to target+band — the band caps overweight drift "
+                     "instead of triggering gain realization.",
+            )
             tc_bps = st.number_input("Transaction cost (bps)", 0.0, 50.0, 5.0)
             pfu_rate = st.slider("PFU rate", 0.0, 0.50, 0.314, step=0.001)
         with st.expander("Risk monitor (Module 8)", expanded=True):
@@ -139,6 +148,7 @@ def _sidebar_config() -> tuple[PipelineConfig, bool]:
         "hrp_linkage": hrp_linkage,
         "rebalance_frequency": freq,
         "drift_threshold": drift,
+        "execution_policy": exec_policy,
         "transaction_cost_bps": tc_bps,
         "pfu_rate": pfu_rate,
         "risk_monitor_enabled": rm_enabled,
