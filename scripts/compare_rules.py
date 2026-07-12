@@ -236,8 +236,14 @@ def _render_header(config_base: PipelineConfig, variant_results: list[VariantRes
         "",
         f"- Pool: `{config_base.pool}`  |  Window: `{config_base.start_date}` → `{end}`",
         f"- Allocator: `{config_base.allocator}`  |  Rebalance frequency: "
-        f"`{config_base.rebalance_frequency}`",
-        f"- Risk monitor: **{'ENABLED' if config_base.risk_monitor_enabled else 'DISABLED'}**",
+        f"`{config_base.rebalance_frequency}`  |  Drift threshold: "
+        f"`{config_base.drift_threshold}`",
+        f"- Risk monitor: **{'ENABLED' if config_base.risk_monitor_enabled else 'DISABLED'}** "
+        f"(signal=`{config_base.risk_monitor_signal}`, "
+        f"bear_prob_threshold=`{config_base.bear_prob_threshold}`, "
+        f"universe_pct_threshold=`{config_base.universe_pct_threshold}`, "
+        f"universe_pct_clear_threshold=`{config_base.universe_pct_clear_threshold}`, "
+        f"risk_off_dwell_days=`{config_base.risk_off_dwell_days}`)",
         "- Strategy rows are **NET** of PFU tax (rate="
         f"{config_base.pfu_rate:.1%}) and transaction costs "
         f"({config_base.transaction_cost_bps:.1f} bps); benchmark rows "
@@ -347,6 +353,15 @@ def _make_parser() -> argparse.ArgumentParser:
         default=None,
         help="Default: PipelineConfig's default (quarterly).",
     )
+    p.add_argument("--drift-threshold", type=float, default=None)
+    p.add_argument(
+        "--risk-monitor-signal", choices=["raw", "smoothed"], default=None,
+        help="Module 8 input signal: raw P(bear) (default) or EWMA-smoothed.",
+    )
+    p.add_argument("--bear-prob-threshold", type=float, default=None)
+    p.add_argument("--universe-pct-threshold", type=float, default=None)
+    p.add_argument("--universe-pct-clear-threshold", type=float, default=None)
+    p.add_argument("--risk-off-dwell-days", type=int, default=None)
     p.add_argument("-v", "--verbose", action="count", default=0)
     return p
 
@@ -362,6 +377,15 @@ def _config_from_args(args: argparse.Namespace) -> PipelineConfig:
     }
     if args.rebalance_frequency is not None:
         overrides["rebalance_frequency"] = args.rebalance_frequency
+    optional_overrides = {
+        "drift_threshold": args.drift_threshold,
+        "risk_monitor_signal": args.risk_monitor_signal,
+        "bear_prob_threshold": args.bear_prob_threshold,
+        "universe_pct_threshold": args.universe_pct_threshold,
+        "universe_pct_clear_threshold": args.universe_pct_clear_threshold,
+        "risk_off_dwell_days": args.risk_off_dwell_days,
+    }
+    overrides.update({k: v for k, v in optional_overrides.items() if v is not None})
     return PipelineConfig.model_validate(overrides)
 
 

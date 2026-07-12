@@ -6,6 +6,63 @@ produced them.
 
 ---
 
+## 2026-07-12 — Step-2 decisive test run (user, local): portfolio layer is now the binding constraint
+
+**Setup.** `scripts/compare_rules.py`, ETF pool, 2007-01-01 → 2026-07-12, HRP,
+quarterly, net of PFU 31.4% + 5 bps. Benchmarks gross: S&P B&H 8.99% CAGR /
+−56.8% MDD; 60/40 6.57% / −41.1%.
+
+**Risk monitor ON (production config):**
+
+| Variant | Net CAGR | MDD | Ann.Vol | Turnover | Tax drag | Risk-off events |
+|---|---|---|---|---|---|---|
+| production θ=0.60 | 1.26% | −20.7% | 3.5% | 637%/yr | 13.8% | 51 |
+| production θ=0.40 | 1.61% | −15.9% | 3.0% | 574%/yr | 17.8% | 51 |
+| ma200 | 1.62% | −13.2% | 2.9% | 574%/yr | 17.9% | 51 |
+| hybrid | 1.43% | −13.1% | 2.9% | 607%/yr | 15.7% | 51 |
+
+**Risk monitor OFF (ablation):**
+
+| Variant | Net CAGR | MDD | Ann.Vol | Turnover | Tax drag |
+|---|---|---|---|---|---|
+| production θ=0.60 | −0.90% | −56.6% | 10.1% | 346%/yr | 2.4% |
+| production θ=0.40 | −0.48% | −57.9% | 9.8% | 275%/yr | 6.5% |
+| ma200 | +1.85% | −22.4% | 6.4% | 283%/yr | 14.3% |
+| hybrid | +2.71% | −24.7% | 6.7% | 352%/yr | 30.9% |
+
+**Reads (in order of importance):**
+
+1. **Production selection contributes nothing without the monitor** — negative
+   CAGR *and* full B&H-scale −57% MDD. All of production's crash protection
+   came from the daily risk monitor, none from the quarterly p_bear selection.
+   Selection-rule verdict is final at every level: trend ≥ vol-regime.
+2. **The monitor whipsaws:** 51 full liquidate+re-enter cycles ≈ 2.6/yr (vs ~6
+   real crash episodes since 2007), each realizing all gains at 31.4%. With it
+   ON, portfolio vol is 2.9–3.5% and CAGR ≈ T-bill yield → the book is parked
+   in BIL most of the time. Root cause: monitor breadth reads RAW `p_bear`
+   (`Raw_Prob`), which flips daily; hysteresis+dwell can't absorb it.
+3. **HRP tilts the book into bonds** (inverse-variance → AGG/SPTL/SPBO/HYG/GLD
+   heavy; same failure mode documented in vendor/hrp memory.md for the European
+   pool): monitor-off vol 6.4–10% vs B&H 19.7%. A large share of the CAGR gap
+   vs the per-asset EW shootout (8.8% MA200 daily) is allocator tilt, not
+   signal quality.
+4. **Churn/taxes:** ~280–350%/yr turnover at quarterly cadence — selection
+   flips at HRP weights + 1.5% drift band re-trading every anchor. Hybrid has
+   the best gross alpha (highest CAGR despite a 30.9% cumulative tax drag —
+   it sells winners on p_bear spikes); a tax-aware policy (wider drift band,
+   rebalance-on-flip-only, soft risk-off per SPEC §16) is where the next
+   points of CAGR are.
+5. Sharpe caveat: performance.py uses raw returns (no rf subtraction), so
+   cash-parked variants get flattered Sharpes; read CAGR/MDD instead.
+
+**Next sweep (knobs shipped this commit):** `--allocator ew` (kill the bond
+tilt; closest to the per-asset arena), `--rebalance-frequency monthly` (trend
+rules like faster anchors; drift band keeps trades rare), `--drift-threshold
+0.05`, and rare-fire monitor: `--risk-monitor-signal smoothed
+--bear-prob-threshold 0.85 --universe-pct-threshold 0.60`.
+
+---
+
 ## 2026-07-12 — Paper-fidelity audit: why production loses to MA200; ma200/hybrid rules shipped
 
 **Question.** Production (JM+XGB per arXiv 2406.09578) loses to MA200 per-asset net

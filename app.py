@@ -94,6 +94,13 @@ def _sidebar_config() -> tuple[PipelineConfig, bool]:
             pfu_rate = st.slider("PFU rate", 0.0, 0.50, 0.314, step=0.001)
         with st.expander("Risk monitor (Module 8)", expanded=True):
             rm_enabled = st.checkbox("Enable risk monitor", value=True)
+            rm_signal = st.selectbox(
+                "Risk monitor signal",
+                ["raw", "smoothed"],
+                index=0,
+                help="raw = unsmoothed daily P(bear) (whipsaw-prone); "
+                     "smoothed = EWMA-smoothed P(bear), same signal the selection rules use.",
+            )
             bear_th = st.slider("Bear-prob threshold (per asset)", 0.50, 0.95, 0.70, step=0.01)
             uni_th = st.slider("Universe trigger threshold (%)", 10, 90, 40, step=5) / 100
             uni_clear = st.slider("Universe clear threshold (%)", 5, 50, 25, step=5) / 100
@@ -135,6 +142,7 @@ def _sidebar_config() -> tuple[PipelineConfig, bool]:
         "transaction_cost_bps": tc_bps,
         "pfu_rate": pfu_rate,
         "risk_monitor_enabled": rm_enabled,
+        "risk_monitor_signal": rm_signal,
         "bear_prob_threshold": bear_th,
         "universe_pct_threshold": uni_th,
         "universe_pct_clear_threshold": uni_clear,

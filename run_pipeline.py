@@ -63,6 +63,15 @@ def _make_parser() -> argparse.ArgumentParser:
     p.add_argument("--bull-prob-threshold", type=float, default=None)
     p.add_argument("--ma-window", type=int, default=None)
     p.add_argument("--hybrid-bear-threshold", type=float, default=None)
+    p.add_argument("--drift-threshold", type=float, default=None)
+    p.add_argument(
+        "--risk-monitor-signal", choices=["raw", "smoothed"], default=None,
+        help="Module 8 input signal: raw P(bear) (default) or EWMA-smoothed.",
+    )
+    p.add_argument("--bear-prob-threshold", type=float, default=None)
+    p.add_argument("--universe-pct-threshold", type=float, default=None)
+    p.add_argument("--universe-pct-clear-threshold", type=float, default=None)
+    p.add_argument("--risk-off-dwell-days", type=int, default=None)
     p.add_argument("--force-refresh", action="store_true")
     p.add_argument(
         "--gate",
@@ -90,6 +99,12 @@ def _config_from_args(args: argparse.Namespace) -> PipelineConfig:
         "bull_prob_threshold": args.bull_prob_threshold,
         "ma_window": args.ma_window,
         "hybrid_bear_threshold": args.hybrid_bear_threshold,
+        "drift_threshold": args.drift_threshold,
+        "risk_monitor_signal": args.risk_monitor_signal,
+        "bear_prob_threshold": args.bear_prob_threshold,
+        "universe_pct_threshold": args.universe_pct_threshold,
+        "universe_pct_clear_threshold": args.universe_pct_clear_threshold,
+        "risk_off_dwell_days": args.risk_off_dwell_days,
     }
     base.update({k: v for k, v in overrides.items() if v is not None})
     return PipelineConfig.model_validate(base)

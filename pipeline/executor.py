@@ -209,6 +209,10 @@ class Executor:
 
     def _p_bear_at(self, date: pd.Timestamp) -> dict[str, float]:
         sub = self.forecast_panel[self.forecast_panel["date"] == date]
+        if self.config.risk_monitor_signal == "smoothed":
+            return dict(
+                zip(sub["symbol"], 1.0 - sub["p_bull_smoothed"], strict=False)
+            )
         return dict(zip(sub["symbol"], sub["p_bear"], strict=False))
 
     def _selected_at(

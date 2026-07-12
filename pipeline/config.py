@@ -106,6 +106,11 @@ class PipelineConfig(BaseModel):
 
     # ---- Risk Monitor (Module 8) -------------------------------------------
     risk_monitor_enabled: bool = True
+    # raw = unsmoothed daily P(bear) (`Raw_Prob`); smoothed = EWMA-smoothed
+    # P(bear) (`State_Prob`, what the selection rules use). Default "raw"
+    # preserves current behavior (real-data runs show raw whipsaws — 51
+    # triggers in 19.5y — because it reacts to every daily XGB jitter).
+    risk_monitor_signal: Literal["raw", "smoothed"] = "raw"
     bear_prob_threshold: float = Field(default=0.70, gt=0.0, lt=1.0)
     universe_pct_threshold: float = Field(default=0.40, gt=0.0, le=1.0)
     universe_pct_clear_threshold: float = Field(default=0.25, ge=0.0, le=1.0)
