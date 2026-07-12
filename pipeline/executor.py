@@ -271,7 +271,10 @@ class Executor:
             return ledger.units.get(s, 0.0) * prices_today.get(s, 0.0) / portfolio_value
 
         plan: list[tuple[str, float, float]] = []  # (symbol, delta_weight, target_weight)
-        for s in universe:
+        # sorted: universe is a set (hash order varies per process); buys are
+        # cash-constrained below, so trade order affects which symbols get
+        # short-changed when cash is tight — must be deterministic.
+        for s in sorted(universe):
             w_curr = current_weight(s)
             w_tgt = float(target_weights.get(s, 0.0))
             dw = w_tgt - w_curr
