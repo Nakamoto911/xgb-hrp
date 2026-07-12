@@ -6,6 +6,56 @@ produced them.
 
 ---
 
+## 2026-07-12 — Pro-rata cash-constrained fills shipped; the drift-0.20 hybrid peak was largely fill-order luck
+
+**Change (this commit).** `Executor._trade_to_target` buys now fill **pro-rata**:
+when planned buys exceed the cash budget (Σgross > cash/(1+bps)), every buy leg
+scales by the same factor instead of filling in sorted-symbol order — no symbol is
+short-changed by its position in the iteration (next-step #2 of the sweep entry
+below). Rebalances that aren't cash-tight are unchanged (scale = 1). Determinism
+kept: two `compare_rules` runs byte-identical; 126 tests pass (new unit test pins
+the proportional split). Total invested per rebalance is identical to the old code
+(Σ = budget) — only the per-symbol split changes; the metric moves below come from
+different drift-gate crossings downstream, not from the scaling itself.
+
+**Before/after (`compare_rules`, ETF, 2007-01-01 → 2026-07-12, EW, quarterly,
+monitor off, net; full tables `cache/compare_prorata_etf_d0{20,25}_{before,after}.md`):**
+
+| Config | Variant | Seq CAGR | Seq MDD | Pro-rata CAGR | Pro-rata MDD | Δ CAGR |
+|---|---|---|---|---|---|---|
+| drift 0.20 | hybrid | +6.64% | −26.5% | **+5.21%** | −26.6% | **−1.43pp** |
+| drift 0.20 | ma200 | +2.44% | −32.4% | +4.16% | −32.4% | +1.72pp |
+| drift 0.20 | prod θ=0.40 | +3.02% | −57.0% | +3.82% | −58.3% | +0.80pp |
+| drift 0.20 | prod θ=0.60 | +1.73% | −57.4% | +2.75% | −57.4% | +1.02pp |
+| drift 0.25 | hybrid | +5.33% | −25.4% | **+4.94%** | −26.5% | −0.39pp |
+| drift 0.25 | ma200 | +5.34% | −25.3% | +3.64% | **−20.7%** | −1.70pp |
+| drift 0.25 | prod θ=0.40 | +2.74% | −56.7% | +4.20% | −58.0% | +1.46pp |
+| drift 0.25 | prod θ=0.60 | +2.86% | −54.7% | +3.75% | −54.7% | +0.89pp |
+
+**Reads:**
+
+1. **Execution-path sensitivity is ±1–1.7pp at these configs** — larger than the
+   ±0.6pp estimated from the pre-fix hash-order spread. The 6.64% drift-0.20
+   hybrid peak was substantially fill-order luck; the honest number under
+   order-free fills is **hybrid ≈ 4.9–5.2% net**.
+2. **The peaked drift ridge flattens**: hybrid's 0.20-vs-0.25 gap shrinks from
+   1.31pp to 0.27pp — supporting the earlier suspicion that the ridge was
+   anchor-alignment/execution path dependence, not signal.
+3. **Rule ordering intact**: hybrid > ma200 > production at 0.20; at 0.25 hybrid
+   still leads on CAGR while ma200 takes the best MDD (−20.7%).
+4. **Nothing clears the 60/40 target (6.57%) any more** → tax-aware execution
+   (next-step #1 below; hybrid's tax drag is 43–56% cumulative here) is now the
+   binding lever. Fill mechanics are settled.
+
+**Measurement gotcha (cost an hour):** `xgb-hrp` is pip-installed editable
+pointing at the main checkout, so `python scripts/compare_rules.py` run from a
+worktree imports the **main repo's** `pipeline`, silently ignoring worktree edits
+(`sys.path[0]` is `scripts/`, not the cwd). Set `PYTHONPATH=<worktree>` when
+running scripts against worktree code; `python -m pytest` is unaffected (cwd on
+path).
+
+---
+
 ## 2026-07-12 — Execution-grid sweep: EW + wide drift band lifts hybrid to ~60/40 net; hash-order determinism bug found & fixed
 
 **Setup.** New `scripts/sweep_rules.py` (parallel driver around `compare_rules.compare`),

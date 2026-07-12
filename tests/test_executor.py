@@ -130,6 +130,39 @@ def test_executor_runs_end_to_end_with_hybrid_forecast_method(prices, forecast):
     assert not res.weights.empty
 
 
+def test_cash_constrained_buys_fill_pro_rata(prices, forecast):
+    """When planned buys exceed cash, every leg scales by the same factor —
+    no symbol is short-changed by its position in the (sorted) fill order."""
+    cfg = PipelineConfig(
+        pool="etf", risk_free_asset="BIL",
+        rebalance_frequency="monthly",
+        risk_monitor_enabled=False,
+        forecast_method="prob_threshold", bull_prob_threshold=0.55,
+        allocator="ew",
+        start_date=str(prices.index[0].date()), end_date=str(prices.index[-1].date()),
+    )
+    ex = Executor(config=cfg, prices=prices, forecast_panel=forecast)
+    from pipeline.executor import AVCOLedger
+
+    ledger = AVCOLedger()
+    targets = pd.Series({"IVV": 0.5, "AGG": 0.3, "GLD": 0.2})
+    prices_today = pd.Series({"IVV": 100.0, "AGG": 50.0, "GLD": 200.0})
+    # cash covers only 30% of the desired buy value → hard constraint.
+    cash_after, trade_rows, total_tc, _ = ex._trade_to_target(
+        targets, prices_today, ledger, cash=300.0, portfolio_value=1000.0,
+        gate_drift=False,
+    )
+    gross = {r["symbol"]: r["units"] * r["price"] for r in trade_rows}
+    # All three legs filled, proportional to their planned deltas (5:3:2).
+    assert set(gross) == {"IVV", "AGG", "GLD"}
+    assert gross["IVV"] / gross["AGG"] == pytest.approx(0.5 / 0.3, rel=1e-9)
+    assert gross["IVV"] / gross["GLD"] == pytest.approx(0.5 / 0.2, rel=1e-9)
+    # Budget fully used (gross + tc == cash), never negative.
+    assert cash_after == pytest.approx(0.0, abs=1e-6)
+    assert cash_after > -1e-9
+    assert sum(gross.values()) + total_tc == pytest.approx(300.0, abs=1e-6)
+
+
 def test_empty_selection_routes_to_risk_free(prices):
     """When no asset passes the rule, the executor parks in the risk-free leg."""
     # Forecast panel where p_bull = 0 always → no asset passes any positive theta.

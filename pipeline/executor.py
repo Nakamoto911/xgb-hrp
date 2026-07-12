@@ -250,7 +250,10 @@ class Executor:
         """Adjust holdings toward ``target_weights`` (sum=1 over selected symbols).
 
         Drift-band gating applies symmetrically to every symbol in the universe
-        currently or newly held. Returns (new_cash, trade_rows, total_tc, realized_gains).
+        currently or newly held. When the planned buys exceed available cash,
+        every buy leg is scaled by the same pro-rata factor (fill order never
+        decides who gets short-changed).
+        Returns (new_cash, trade_rows, total_tc, realized_gains).
         """
         bps = self.config.transaction_cost_bps / 1e4
         gate = self.config.drift_threshold if gate_drift else 0.0
@@ -271,9 +274,9 @@ class Executor:
             return ledger.units.get(s, 0.0) * prices_today.get(s, 0.0) / portfolio_value
 
         plan: list[tuple[str, float, float]] = []  # (symbol, delta_weight, target_weight)
-        # sorted: universe is a set (hash order varies per process); buys are
-        # cash-constrained below, so trade order affects which symbols get
-        # short-changed when cash is tight — must be deterministic.
+        # sorted: universe is a set (hash order varies per process). Buys fill
+        # pro-rata so order no longer changes allocations, but the trade log
+        # and float-summation order must stay deterministic.
         for s in sorted(universe):
             w_curr = current_weight(s)
             w_tgt = float(target_weights.get(s, 0.0))
@@ -306,18 +309,27 @@ class Executor:
                  "tc": tc, "realized_gain": realized}
             )
 
-        # Execute buys (cash-constrained)
+        # Execute buys (cash-constrained, pro-rata). Per leg: gross + tc <= cash
+        # share; tc = gross*bps → Σgross <= cash / (1+bps). When the planned
+        # buys exceed that budget, scale every leg by the same factor instead
+        # of filling in symbol order, so no symbol is short-changed by its
+        # position in the iteration.
+        buys: list[tuple[str, float, float]] = []  # (symbol, desired_gross, price)
         for s, dw, _w_tgt in plan:
             if dw <= 0:
                 continue
             price = prices_today.get(s, np.nan)
             if not np.isfinite(price) or price <= 0:
                 continue
-            desired_value = dw * portfolio_value
-            # Solve: gross + tc <= cash; gross = units*price; tc = gross*bps
-            #        gross * (1+bps) <= cash → gross <= cash / (1+bps)
-            max_gross = cash / (1.0 + bps)
-            gross = min(desired_value, max_gross)
+            desired = dw * portfolio_value
+            if desired > 0:
+                buys.append((s, desired, price))
+        total_desired = sum(g for _s, g, _p in buys)
+        max_affordable = cash / (1.0 + bps)
+        scale = min(1.0, max_affordable / total_desired) if total_desired > 0 else 0.0
+        for s, desired, price in buys:
+            # Per-leg clamp: float drift across legs must never push cash < 0.
+            gross = min(desired * scale, cash / (1.0 + bps))
             if gross <= 1e-6:
                 continue
             delta_units = gross / price
