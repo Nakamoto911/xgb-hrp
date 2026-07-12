@@ -6,6 +6,81 @@ produced them.
 
 ---
 
+## 2026-07-12 — Execution-grid sweep: EW + wide drift band lifts hybrid to ~60/40 net; hash-order determinism bug found & fixed
+
+**Setup.** New `scripts/sweep_rules.py` (parallel driver around `compare_rules.compare`),
+ETF pool, 2007-01-01 → 2026-07-12, net of PFU 31.4% + 5 bps. Grid: allocator {ew, hrp} ×
+freq {monthly, quarterly} × drift {0.015, 0.05, 0.10} × monitor {off, rare-fire
+(smoothed, θ_bear=0.85, breadth=0.60)} = 24 configs × 4 rules; then targeted probes on
+the winning axis (quarterly/semi-annually/yearly × drift 0.10–0.30, EW, monitor off).
+Full tables: `cache/sweep_rules_etf_*.{csv,md}`. Target: net CAGR ≥ 6.57% (60/40 gross)
+with MDD ≤ −25% and ≤ ~quarterly trading.
+
+**Determinism bug (found by this sweep, fixed this commit).** Backtest results depended
+on `PYTHONHASHSEED`: `Executor` built its trade plan by iterating a `set` of symbols,
+and buys are cash-constrained, so hash order decided which symbols got short-changed
+when cash was tight. Same config gave hybrid net CAGR 5.32–6.64% (MDD −26.5% to −32.4%)
+across runs. Fix: `sorted(universe)` in the plan loop (`pipeline/executor.py`);
+two unseeded runs now byte-identical at two configs; 125 tests pass. **All earlier
+portfolio-level point values (incl. today's step-2 decisive tables below) are single
+draws under this bug — orderings stand (gaps are multi-pp), point values ±~0.6pp.**
+Corollary worth exploiting later: fill order moves CAGR by >1pp → the sequential
+cash-constrained fill itself is a lever (pro-rata scaling would remove the artifact).
+
+**Sweep verdicts (deterministic re-run, every ordering unanimous across the grid):**
+
+1. **hybrid > ma200 ≫ production at all 24 configs** — selection-rule verdict now
+   confirmed at portfolio level for every allocator/cadence/band/monitor combination.
+   Production keeps −57% MDD everywhere without the old whipsaw monitor: it provides
+   no crash protection at any operating point.
+2. **EW > HRP everywhere** (~+1.4pp CAGR on like configs) — kills the bond-tilt drag
+   documented 2026-07-12; HRP's only virtue is lower vol (~6.5% vs ~9%).
+3. **Rare-fire monitor is strictly harmful**: 8 liquidation events cost 1.2–3.9pp CAGR
+   and *worsen* MDD at the wide-band configs (trend selection already exits crashes;
+   the monitor only adds tax realizations). At quarterly/0.20: hybrid 6.64% → 2.71%,
+   MDD −26.5% → −30.7%. Monitor OFF is the right default for trend rules.
+4. **Wider drift band ≫ everything else** — the tax-realization channel dominates:
+   within the grid, best config = ew/quarterly/0.10/off/hybrid 4.44% (−25.4% MDD,
+   10.3 trades/yr). Tax-free ablation (pfu=0, same config): hybrid 6.02% → taxes cost
+   ~1.6pp even at drift 0.10.
+
+**Probe results on the winning axis (EW, monitor off, deterministic):**
+
+| Freq | Drift | Rule | Net CAGR | MDD | Sharpe | Turnover | Tax drag | Trades/yr |
+|---|---|---|---|---|---|---|---|---|
+| quarterly | 0.20 | hybrid | **+6.64%** | −26.5% | 0.76 | 50%/yr | 19.6% | **2.4** |
+| semi-ann. | 0.20 | hybrid | +6.01% | −27.8% | 0.74 | 42%/yr | 31.1% | 1.9 |
+| quarterly | 0.25 | ma200 | +5.34% | −25.3% | 0.76 | 40%/yr | **8.5%** | **1.3** |
+| quarterly | 0.25 | hybrid | +5.33% | −25.4% | 0.71 | 76%/yr | 40.2% | 2.6 |
+| quarterly | 0.15 | hybrid | +4.97% | −26.3% | 0.67 | 113%/yr | 56.0% | 4.4 |
+| quarterly | 0.30 | ma200 | +4.64% | **−21.0%** | 0.82 | 58%/yr | 11.5% | 1.5 |
+| yearly | 0.20 | hybrid | +3.46% | **−14.2%** | 0.73 | 47%/yr | 18.1% | 1.3 |
+
+(yearly anchors break ma200 — crash exits wait for drift events: −51% MDD.)
+
+**Verdict vs target: close, not closed.** quarterly/0.20/hybrid hits CAGR (6.64% ≥
+6.57%) and cadence (2.4 trades/yr) but misses MDD by 1.5pp (−26.5% vs −25%); nothing
+satisfies all three. Caveats: the drift ridge is peaked, not a plateau (0.15/0.25
+neighbors sit 1.3–1.7pp lower — anchor-alignment path dependence, single historical
+sample); and the pre-fix spread shows ±0.6pp of pure fill-order sensitivity at this
+operating point. Treat "hybrid ≈ 5–6.6% net, MDD ≈ −25%" as the honest read.
+ma200 @ quarterly/0.25 is the low-tax simple alternative (5.34%, 8.5% tax drag,
+1.3 trades/yr).
+
+**Next steps (in order):**
+1. Tax-aware execution per SPEC §16 (rebalance-on-flip-only, never sell winners to
+   re-band): tax drag at the peak is still 19.6% cumulative, and the pfu=0 ablation
+   says ~+1.3–1.8pp CAGR headroom → would clear 60/40 with margin.
+2. Pro-rata (not sequential) cash-constrained fills — removes the >1pp fill-order
+   artifact the determinism bug exposed.
+3. Robustness: subperiod split (2007–2016 / 2017–2026) of quarterly/0.20 vs 0.15/0.25
+   before trusting the peak; the ridge shape may be luck.
+4. Step-3 root-cause fix (vendor XGB directional target) unchanged — hybrid's edge
+   over ma200 (+1.3pp at the peak) is the p_bear backstop earning its keep, so a
+   better-trained signal compounds it.
+
+---
+
 ## 2026-07-12 — Step-2 decisive test run (user, local): portfolio layer is now the binding constraint
 
 **Setup.** `scripts/compare_rules.py`, ETF pool, 2007-01-01 → 2026-07-12, HRP,
