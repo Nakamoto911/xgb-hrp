@@ -2,9 +2,12 @@
 
 Two charts:
 
-* :func:`asset_regime_chart` — daily P(bear) heatmap per asset (risk-ordered
-  rows from defensive → risk-on), with Resolution and Time-range pickers.
-  Mirrors the chart in vendor lines 382-500.
+* :func:`asset_regime_chart` — daily bear-regime heatmap per asset
+  (risk-ordered rows from defensive → risk-on), with Signal, Resolution
+  and Time-range pickers. The Signal picker switches the heatmap between
+  the XGB model's P(bear) forecast (default, mirrors the chart in vendor
+  lines 382-500 byte-for-byte) and two price-only alternatives from
+  :mod:`pipeline.indicators` (MA200, MA200 + ADX).
 
 * :func:`portfolio_composition_chart` — stacked-bar of MVO weights per
   period with the cumulative wealth line overlaid on a secondary y-axis.
@@ -19,6 +22,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
+
+from pipeline.indicators import ma_adx_bear_score, sma_bear_signal
 
 # Defensive → risk-on order used by the regime heatmap (vendor convention).
 _RISK_ORDER = [
@@ -69,13 +74,22 @@ _RANGE_OFFSETS = {
 # Asset regime heatmap
 # -----------------------------------------------------------------------------
 def asset_regime_chart(
-    forecast_panel: pd.DataFrame, *, key_prefix: str = "regime"
+    forecast_panel: pd.DataFrame,
+    *,
+    prices: pd.DataFrame | None = None,
+    key_prefix: str = "regime",
 ) -> None:
-    """Render the Asset Regime heatmap (P(bear) per asset over time).
+    """Render the Asset Regime heatmap (bear-regime signal per asset over time).
 
     ``forecast_panel`` is the long-form output of
     :func:`pipeline.forecast.build_forecasts` with columns
     ``[symbol, asset_name, date, p_bear, ...]``.
+
+    ``prices`` is the wide date × symbol adjusted-close panel from
+    :func:`pipeline.data.load_prices`. It is only needed for the MA200 /
+    MA200 + ADX Signal choices (see :mod:`pipeline.indicators`); the
+    default "XGB (model)" source ignores it entirely, so callers that only
+    ever use the default may omit it.
     """
     st.subheader("Asset Regime Chart")
 
@@ -83,7 +97,7 @@ def asset_regime_chart(
         st.info("No forecast panel — run the pipeline first.")
         return
 
-    ctrl_res, ctrl_range, _ = st.columns([1, 2, 2])
+    ctrl_res, ctrl_range, ctrl_signal = st.columns([1, 2, 2])
     resolution = ctrl_res.selectbox(
         "Resolution",
         ["Daily", "Weekly", "Monthly", "Quarterly"],
@@ -97,15 +111,78 @@ def asset_regime_chart(
         horizontal=True,
         key=f"{key_prefix}_range",
     )
-
-    # Pivot to date × asset_name (P(bear)).
-    pivot = (
-        forecast_panel.pivot_table(
-            index="date", columns="asset_name", values="p_bear", aggfunc="mean"
-        )
-        .sort_index()
+    signal_source = ctrl_signal.selectbox(
+        "Signal",
+        ["XGB (model)", "MA200", "MA200 + ADX"],
+        index=0,
+        key=f"{key_prefix}_signal",
+        help=(
+            "XGB (model): the walk-forward XGB model's smoothed P(bear) "
+            "forecast (default). "
+            "MA200: binary trend signal — 1.0 when adjusted close is below "
+            "its 200-day SMA, else 0.0. This is a FIXED canonical 200-day "
+            "window, the same convention as the cockpit's ma200 reference "
+            "baseline — not the configurable production ma_window used by "
+            "the forecast rules. "
+            "MA200 + ADX: the MA200 direction scaled by ADX(14) trend "
+            "strength into a [0,1] score (0.5 = flat/no trend). ADX here is "
+            "a close-only approximation — this pipeline only carries "
+            "adjusted close, no High/Low."
+        ),
     )
-    # Resample to the chosen resolution.
+
+    if signal_source == "XGB (model)":
+        # Pivot to date × asset_name (P(bear)). Unchanged from the original,
+        # Signal-picker-free chart — this path stays byte-for-byte identical.
+        pivot = (
+            forecast_panel.pivot_table(
+                index="date", columns="asset_name", values="p_bear", aggfunc="mean"
+            )
+            .sort_index()
+        )
+        colorbar_title = "P(Bear)"
+    else:
+        if prices is None or prices.empty:
+            st.info(
+                "This signal needs the adjusted-close price panel, which "
+                "isn't available here. Select 'XGB (model)', or make sure "
+                "the price cache has loaded."
+            )
+            return
+
+        # Compute on the FULL price history (not yet clipped to the
+        # forecast panel's window) so SMA/ADX warmup consumes the earliest
+        # available data, matching what a live signal would have shown on
+        # each date in range — then clip to the forecast panel's span so
+        # all three sources cover the same window.
+        if signal_source == "MA200":
+            signal_wide = sma_bear_signal(prices, window=200)
+            colorbar_title = "Bear"
+        else:  # "MA200 + ADX"
+            signal_wide = ma_adx_bear_score(
+                prices, ma_window=200, adx_window=14, adx_scale=50.0
+            )
+            colorbar_title = "Bear score"
+
+        fp_dates = pd.to_datetime(forecast_panel["date"])
+        signal_wide = signal_wide.loc[
+            (signal_wide.index >= fp_dates.min()) & (signal_wide.index <= fp_dates.max())
+        ]
+
+        # Keep only symbols present in the forecast panel; translate
+        # symbol → asset_name (same idea as portfolio_composition_chart's
+        # rename, but collapsing duplicate asset_name columns via mean —
+        # these are per-asset scores, not additive portfolio weights).
+        name_map = forecast_panel.groupby("symbol")["asset_name"].first()
+        signal_wide = signal_wide[[c for c in signal_wide.columns if c in name_map.index]]
+        signal_wide = signal_wide.rename(columns=name_map.to_dict())
+        signal_wide = signal_wide.T.groupby(level=0).mean().T
+
+        pivot = signal_wide.sort_index()
+
+    # Resample to the chosen resolution. Note: after a Weekly/Monthly/
+    # Quarterly resample, the binary MA200 signal becomes a share-of-
+    # bear-days fraction in [0, 1] rather than a strict 0/1 flag — intended.
     resample_rule = _FREQ_MAP[resolution]
     if resample_rule is not None:
         pivot = pivot.resample(resample_rule).mean()
@@ -152,9 +229,9 @@ def asset_regime_chart(
             [1.0, "rgb(200,30,30)"],
         ],
         zmin=0, zmax=1,
-        hovertemplate="<b>%{y}</b><br>%{x}<br>P(Bear): %{z:.0%}<extra></extra>",
+        hovertemplate=f"<b>%{{y}}</b><br>%{{x}}<br>{colorbar_title}: %{{z:.0%}}<extra></extra>",
         colorbar=dict(
-            title="P(Bear)",
+            title=colorbar_title,
             tickformat=".0%",
             tickvals=[0, 0.25, 0.5, 0.75, 1],
             len=0.6,

@@ -257,7 +257,12 @@ tab_regime, tab_quality, tab_perf, tab_cockpit = st.tabs(
 
 # ── Tab 1: regime chart first, then the backtest-derived views ───────────────
 with tab_regime:
-    asset_regime_chart(forecast_panel, key_prefix="regime_top")
+    # Prices for the chart's MA200 / MA200 + ADX Signal choices. Cheap here:
+    # ``_load_forecasts`` above has already warmed the price parquet this
+    # run pulls from, so this cached read doesn't delay the chart's first
+    # paint (the default "XGB (model)" signal doesn't even touch it).
+    prices_chart = _load_prices(config_json, force)
+    asset_regime_chart(forecast_panel, prices=prices_chart, key_prefix="regime_top")
 
     st.divider()
 
