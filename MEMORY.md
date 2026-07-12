@@ -6,6 +6,84 @@ produced them.
 
 ---
 
+## 2026-07-12 — Paper-fidelity audit: why production loses to MA200; ma200/hybrid rules shipped
+
+**Question.** Production (JM+XGB per arXiv 2406.09578) loses to MA200 per-asset net
+(2026-07-07 entry). Implementation bug, mis-application of the paper, or wrong tool
+for a taxed low-frequency account?
+
+**Findings (code + paper audit — refcard: `vendor/xgboost/refcard.md`):**
+
+1. **The implementation is faithful; the expectation was not.** The vendor repo was
+   validated hard against the paper (JM matches the authors' `jumpmodels` library
+   with 100% state agreement; XGB uses paper-default hyperparameters; features and
+   per-asset smoothing halflives per Tables 2–3; residual gaps documented there:
+   Yahoo-vs-Bloomberg data ≈ −0.14 Sharpe, λ-grid sensitivity). **The paper never
+   benchmarks against MA200 or any trend rule** — only B&H, JM-only and EWMA-μ.
+   "Better results" in the paper means better than buy-and-hold, gross of taxes,
+   at daily rebalancing (portfolio turnover 2.1–11.7×/yr, refcard Table 6). Losing
+   to MA200 does not contradict the paper — the authors never ran that comparison.
+2. **The paper's alpha lives at an operating point we can't trade.** Headline
+   Sharpe 1.12 = MinVar-MVO with regime-conditioned μ, daily rebalancing, 5 bps,
+   no taxes. Under PFU 31.4% per realized gain + ~quarterly cadence, fast regime
+   switching is exactly what gets destroyed. The paper's own Table 7: JM-XGB
+   next-day return-forecast correlation is 2.4% — the signal's content is
+   vol-regime classification (risk control), not direction. Matches the vendor's
+   own experiment log ("wins in crises, loses in bull markets"; multi-asset
+   replication 7/11 wins vs B&H against the paper's claimed 11/12).
+3. **xgb-hrp deviates from the paper's portfolio construction by design**
+   (selection + HRP + quarterly drift-band executor + taxes, instead of daily MVO
+   with regime-μ) — sensible, but "paper results" were never the right yardstick
+   for this pipeline either.
+4. **Dead tuning knobs.** PipelineConfig declares `jm_lookback_years`,
+   `jm_n_states`, `jm_max_iter`, `jm_tol`, `jm_n_init`, `xgb_max_depth`,
+   `xgb_learning_rate`, `xgb_n_estimators`, `xgb_smoothing_halflife`, but
+   `pipeline/_walk_forward.py` forwards only `jm_lambda_grid` + transaction cost
+   to the vendor call — the rest silently do nothing. Wire through or remove.
+5. **Benchmark nit:** etf-pool `benchmark_bh` is `^GSPC` (price index,
+   ex-dividends) vs a total-return strategy NAV — `beats_bh` flattered ~2pp/yr.
+   Prefer `^SP500TR`.
+6. Executor grants every rule same-close execution (signal at t's close, trade at
+   t's close, returns accrue from t+1) — apples-to-apples across rules.
+
+**Shipped (this commit):**
+- `ma200` and `hybrid` (bear = price < SMA(`ma_window`) OR smoothed p_bear >
+  `hybrid_bear_threshold`; defaults 200 / 0.80) as `forecast_method` options;
+  price panel threaded selector→apply_rule→executor/CLI/UI/cockpit; new config
+  fields `ma_window`, `hybrid_bear_threshold`; SMA warm-up defaults to bull
+  (cockpit convention). Step 1 quick win: `bull_prob_threshold` default
+  0.60 → 0.40. Tests: 124 passing.
+- `scripts/compare_rules.py` — one command → the step-2 decisive table
+  (net CAGR / Sharpe / Sortino / MDD / Calmar / turnover / tax+tc drag /
+  trades/yr / risk-off events) for production θ=0.60, θ=0.40, ma200, hybrid
+  + gross B&H and 60/40 rows; `--no-risk-monitor` ablation flag.
+
+**Step-2 decisive run still pending** — the remote session's network policy blocks
+all market-data hosts. Run locally (or allow `query1.finance.yahoo.com`,
+`query2.finance.yahoo.com`, `fc.yahoo.com`, `fred.stlouisfed.org` in the
+environment's egress settings):
+
+```bash
+python run_pipeline.py --phase all --pool etf --start-date 2007-01-01
+python scripts/compare_rules.py --pool etf --start-date 2007-01-01
+```
+
+Hypotheses to check against the table: quarterly gating will cut MA200's
+per-asset edge (the 2026-07-07 shootout assumed daily flips), while the daily
+risk monitor (XGB p_bear breadth) still covers crash exits between rebalances —
+so `hybrid`/`ma200` + monitor should keep most of the MDD win at ≤ ~quarterly
+cadence; verify the trades/yr column against the once-per-quarter goal.
+
+**Step-3 root-cause fix (designed, not implemented — vendor-repo work):** the XGB
+target is the JM vol-regime label, so the model is trained to answer the wrong
+question for a long/flat trader. In Nakamoto911/xgboost: add price-location
+features (distance-to-MA200, 12-month momentum) to the XGB feature set
+(`run_period_forecast`, main.py:463-500) and/or switch the training target to a
+directional/trend label. Optional after hybrid; the 324-config grid result says
+no amount of threshold tuning fixes it.
+
+---
+
 ## 2026-07-07 — Production regime rule loses to MA200 (per-asset, net)
 
 **Setup.** ETF pool, 2007-01-01 → 2026-07-06, warm caches. Each detector
