@@ -182,7 +182,7 @@ class PerformanceReport:
         lines.append(f"# Pipeline Report — pool=`{cfg.pool}`")
         lines.append("")
         lines.append(f"- Window: `{cfg.start_date}` → `{cfg.end_date or 'today'}`")
-        lines.append(f"- Allocator: `{cfg.allocator}` | rebalance `{cfg.rebalance_frequency}` | drift `{cfg.drift_threshold}`")
+        lines.append(f"- Allocator: `{cfg.allocator}` | rebalance `{cfg.rebalance_frequency}` | drift `{cfg.drift_threshold}` | policy `{cfg.execution_policy}`")
         lines.append(f"- Forecast rule: `{cfg.forecast_method}` θ={cfg.bull_prob_threshold}")
         lines.append(
             f"- Risk monitor: enabled={cfg.risk_monitor_enabled} "

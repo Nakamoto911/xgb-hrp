@@ -65,6 +65,12 @@ def _make_parser() -> argparse.ArgumentParser:
     p.add_argument("--hybrid-bear-threshold", type=float, default=None)
     p.add_argument("--drift-threshold", type=float, default=None)
     p.add_argument(
+        "--execution-policy", choices=["drift_band", "flip_only"], default=None,
+        help="drift_band: band triggers a full re-band to target (SPEC §9.2). "
+             "flip_only: tax-aware — sell only on selection flips or to trim "
+             "back to target+band; band is a cap, not a trigger (SPEC §16).",
+    )
+    p.add_argument(
         "--risk-monitor-signal", choices=["raw", "smoothed"], default=None,
         help="Module 8 input signal: raw P(bear) (default) or EWMA-smoothed.",
     )
@@ -100,6 +106,7 @@ def _config_from_args(args: argparse.Namespace) -> PipelineConfig:
         "ma_window": args.ma_window,
         "hybrid_bear_threshold": args.hybrid_bear_threshold,
         "drift_threshold": args.drift_threshold,
+        "execution_policy": args.execution_policy,
         "risk_monitor_signal": args.risk_monitor_signal,
         "bear_prob_threshold": args.bear_prob_threshold,
         "universe_pct_threshold": args.universe_pct_threshold,

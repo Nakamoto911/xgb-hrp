@@ -9,7 +9,11 @@ Walks the OOS window day-by-day. At each business day:
    clearance is enqueued for tomorrow's close.
 4. If today is a scheduled rebalance AND we're risk-on AND no action is
    pending, run the selector + allocator and trade to the target weights
-   with drift-band gating (config.drift_threshold).
+   per ``config.execution_policy``: ``drift_band`` (SPEC §9.2 — the band is
+   a trigger; any |Δw| ≥ config.drift_threshold trades fully to target) or
+   ``flip_only`` (SPEC §16 tax-aware — sells only on selection flips or to
+   trim an overweight back to target + band; the band is a cap, never a
+   trigger for gain realization).
 5. At year-end roll-over, settle the annual tax on net realized gains
    against the vintage-aged loss carryforward.
 
@@ -249,11 +253,26 @@ class Executor:
     ) -> tuple[float, list[dict], float, float]:
         """Adjust holdings toward ``target_weights`` (sum=1 over selected symbols).
 
-        Drift-band gating applies symmetrically to every symbol in the universe
-        currently or newly held. Returns (new_cash, trade_rows, total_tc, realized_gains).
+        With ``gate_drift=False`` (risk-off liquidations / re-entries) every
+        symbol trades fully to target. With ``gate_drift=True`` the trade plan
+        follows ``config.execution_policy``:
+
+        * ``drift_band`` — the band is a trigger, applied symmetrically: any
+          symbol with |w_target - w_current| >= drift_threshold trades all the
+          way to target (including selling winners back down to re-band).
+        * ``flip_only`` — tax-aware: a held symbol absent from the target
+          selection is always sold in full (the band never blocks a trend
+          exit); a continuing holding is sold only down to target + band when
+          it drifts above that cap (minimal gain realization, never a re-band
+          to target); buys — flip-in entries and underweight top-ups — realize
+          no gains and are never band-gated, so freed cash redeploys instead
+          of idling.
+
+        Returns (new_cash, trade_rows, total_tc, realized_gains).
         """
         bps = self.config.transaction_cost_bps / 1e4
         gate = self.config.drift_threshold if gate_drift else 0.0
+        flip_only = gate_drift and self.config.execution_policy == "flip_only"
 
         # Build "universe" = symbols I hold today ∪ symbols I'm targeting.
         held_symbols = {s for s, u in ledger.units.items() if u > 0}
@@ -277,9 +296,24 @@ class Executor:
         for s in sorted(universe):
             w_curr = current_weight(s)
             w_tgt = float(target_weights.get(s, 0.0))
-            dw = w_tgt - w_curr
-            if abs(dw) < gate:
-                continue
+            if flip_only:
+                if s not in target_symbols:
+                    if not w_curr > 0:  # `not >` also skips NaN (untradeable today)
+                        continue
+                    dw = -w_curr                    # flip out → full exit
+                elif w_curr > w_tgt + gate:
+                    dw = (w_tgt + gate) - w_curr    # cap trim, not a re-band
+                elif w_tgt > w_curr:
+                    # Buys realize no gains, so they are never band-gated:
+                    # flip-ins establish, underweights top up. Cash-constrained
+                    # below, so these only fire when sells freed cash.
+                    dw = w_tgt - w_curr
+                else:
+                    continue
+            else:
+                dw = w_tgt - w_curr
+                if abs(dw) < gate:
+                    continue
             plan.append((s, dw, w_tgt))
 
         # Execute sells

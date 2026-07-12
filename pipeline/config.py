@@ -100,6 +100,14 @@ class PipelineConfig(BaseModel):
         "daily", "weekly", "monthly", "quarterly", "semi-annually", "yearly"
     ] = "quarterly"
     drift_threshold: float = Field(default=0.015, ge=0.0, lt=1.0)
+    # drift_band (SPEC §9.2): the band is a *trigger* — any asset with
+    # |w_target - w_current| >= drift_threshold is traded all the way back to
+    # target, selling winners and realizing gains merely to re-band.
+    # flip_only (SPEC §16 tax-aware policy): sells happen only on selection
+    # flips (always a full exit — the band never blocks a trend exit) or to
+    # trim an overweight back to target + band (band as *cap*, minimal gain
+    # realization); flip-ins are established regardless of the band.
+    execution_policy: Literal["drift_band", "flip_only"] = "drift_band"
     transaction_cost_bps: float = Field(default=5.0, ge=0.0)
     pfu_rate: float = Field(default=0.314, ge=0.0, lt=1.0)
     loss_carryforward_years: int = Field(default=10, ge=0)

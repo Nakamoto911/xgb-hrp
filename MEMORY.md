@@ -6,6 +6,58 @@ produced them.
 
 ---
 
+## 2026-07-12 — Tax-aware executor (`flip_only`) shipped; falsifies the +1.3–1.8pp headroom hypothesis — the 6.64% peak was flip *suppression*, not tax efficiency
+
+**Shipped.** `execution_policy` config field (`drift_band` default = unchanged §9.2
+trigger semantics; `flip_only` = SPEC §9.2.1, promoted from §16): sells fire only on
+selection flips (always full exit — the band never blocks a trend exit, including
+empty-selection routing to rf) or to trim an overweight back to target+band (band as
+cap, minimal realization per event); buys (flip-ins, top-ups) are never band-gated —
+they realize no gains, and gating them would leave flip-out proceeds idling as
+zero-yield cash. Risk-off liquidate/re-enter paths unchanged (always full re-band).
+Threaded through compare_rules/run_pipeline `--execution-policy`, UI, report header.
+6 new executor tests (131 pass). Determinism verified on real data: two
+`PYTHONHASHSEED`s → byte-identical tables. Baseline (`drift_band`) reproduces the
+sweep byte-exactly (hybrid 6.64% / −26.51% / 19.62% drag / 2.4 trades/yr).
+
+**Result (ETF, 2007→2026-07-12, EW, quarterly, drift 0.20, monitor off, net):**
+
+| Rule | drift_band CAGR | flip_only CAGR | MDD (band→flip) | Tax drag | Turnover | Trades/yr |
+|---|---|---|---|---|---|---|
+| hybrid | **+6.64%** | +4.85% | −26.5% → **−24.8%** | 19.6% → 60.4% | 50% → 233%/yr | 2.4 → 13.3 |
+| ma200 | +2.44% | **+4.03%** | −32.4% → −26.9% | 15.6% → 34.6% | 85% → 197%/yr | 3.0 → 12.4 |
+
+Band probes under flip_only (hybrid): 4.18% / 4.43% / 4.85% at drift 0.05 / 0.10 /
+0.20 — the drift knob stops being a lever (band = cap only), so the peaked drift
+ridge of the sweep is confirmed as a `drift_band` artifact.
+
+**Reads:**
+
+1. **Hypothesis falsified at the peak config.** With EW weights ~8–12% all below the
+   0.20 band, `drift_band` was gating the *selection flips themselves* — the 6.64%
+   config traded 2.4×/yr because it mostly ignored hybrid's churn and held through
+   p_bear spikes. The pfu=0 ablation priced the tax on the trades `drift_band`
+   actually made; it says nothing about a policy that makes different trades.
+   `flip_only` faithfully executes every flip → hybrid's flip churn is where the
+   realizations live → tax drag 60%.
+2. **Direction of the effect flips with signal churn**: ma200 (rarer, better-timed
+   flips) *gains* +1.6pp and 5.5pp of MDD from faithful flip execution; hybrid
+   (p_bear-spike churn) loses 1.8pp. Consistent with 2026-07-07's per-asset finding
+   that hybrid "sells winners on p_bear spikes".
+3. **flip_only meets the MDD target, misses CAGR**: hybrid −24.8% (≤ −25% ✓) but
+   4.85% < 6.57%. Crash exits are now full-size instead of band-gated — that's the
+   MDD win and part of the tax cost.
+4. **The durable lever is selection-flip churn, not re-band churn.** Next step
+   candidates: selection hysteresis (dwell/confirmation before dropping a held
+   name — a `flip_only` portfolio only trades when selection changes, so damping
+   selection churn attacks tax drag directly), raising `hybrid_bear_threshold`, or
+   accepting `drift_band` 0.20 as an implicit flip suppressor with its documented
+   anchor-alignment path-dependence risk.
+
+Tables: `cache/compare_rules_etf_2007-01-01_2026-07-12{,_flip_only}.md`.
+
+---
+
 ## 2026-07-12 — Execution-grid sweep: EW + wide drift band lifts hybrid to ~60/40 net; hash-order determinism bug found & fixed
 
 **Setup.** New `scripts/sweep_rules.py` (parallel driver around `compare_rules.compare`),
