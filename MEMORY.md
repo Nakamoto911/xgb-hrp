@@ -67,17 +67,37 @@ operating point. Treat "hybrid ≈ 5–6.6% net, MDD ≈ −25%" as the honest r
 ma200 @ quarterly/0.25 is the low-tax simple alternative (5.34%, 8.5% tax drag,
 1.3 trades/yr).
 
+**Subperiod split (2007–2016 / 2017–2026, NAV sliced from the full-window run —
+same session, deterministic):**
+
+| Variant | H1 CAGR | H1 MDD | H2 CAGR | H2 MDD |
+|---|---|---|---|---|
+| hybrid drift 0.15 | +5.39% | −17.8% | +4.65% | −26.3% |
+| hybrid drift 0.20 | +4.93% | −26.5% | +8.44% | −26.0% |
+| hybrid drift 0.25 | +5.79% | −21.9% | +5.19% | −25.4% |
+| ma200 drift 0.25 | +2.95% | −13.7% | +7.88% | −25.3% |
+| 60/40 gross (VSMGX) | +4.69% | −41.1% | +8.54% | −22.4% |
+
+Reads: (a) hybrid tracks the gross 60/40 CAGR within ±0.3pp *net of tax* in **both**
+halves (beats it in H1) — consistent, not one-era luck; (b) but the drift-ridge
+location flips (H1 best: 0.25; H2 best: 0.20), so the full-window 6.64% peak at 0.20
+is partly parameter luck — the robust statement is "hybrid ≈ 5–6.5% net across drift
+0.15–0.25"; (c) the durable edge over 60/40 is drawdown control in H1-type regimes
+(−26% vs −41% in 2008) plus the tax-policy headroom, not raw CAGR; in H2 60/40 had
+the shallower MDD; (d) ma200 is far more era-dependent (2.95% H1) — hybrid's p_bear
+backstop earns its keep exactly there.
+
 **Next steps (in order):**
 1. Tax-aware execution per SPEC §16 (rebalance-on-flip-only, never sell winners to
    re-band): tax drag at the peak is still 19.6% cumulative, and the pfu=0 ablation
    says ~+1.3–1.8pp CAGR headroom → would clear 60/40 with margin.
 2. Pro-rata (not sequential) cash-constrained fills — removes the >1pp fill-order
    artifact the determinism bug exposed.
-3. Robustness: subperiod split (2007–2016 / 2017–2026) of quarterly/0.20 vs 0.15/0.25
-   before trusting the peak; the ridge shape may be luck.
-4. Step-3 root-cause fix (vendor XGB directional target) unchanged — hybrid's edge
-   over ma200 (+1.3pp at the peak) is the p_bear backstop earning its keep, so a
-   better-trained signal compounds it.
+3. Step-3 root-cause fix (vendor XGB directional target) unchanged — hybrid's edge
+   over ma200 (+1.3pp at the peak, +2.4pp in 2007–2016) is the p_bear backstop
+   earning its keep, so a better-trained signal compounds it.
+4. Pick production drift by robustness, not the peak: 0.20–0.25 band, decide after
+   the tax-aware executor lands (it changes the turnover/tax geometry).
 
 ---
 
